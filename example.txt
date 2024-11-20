@@ -1,0 +1,4 @@
+\\\problem
+Given $A=\{a\in\mathbb{R}\mid a<3\}$ and $B=\{b\in\mathbb{R}\mid b>5\}$ prove that for all $a\in A$ and $b\in B$: $a<b$.
+\\\proof
+Consider any $a\in A$ and any $b\in B$. Since $a<3$ and $b>5$ and $5>3$, $a<b$.

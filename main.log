@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2024.10.23)  18 NOV 2024 09:16
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2024.10.23)  21 NOV 2024 10:53
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -925,25 +925,56 @@ LaTeX Info: Redefining \th on input line 14.
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
+LaTeX Font Info:    Trying to load font information for U+msa on input line 20.
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 20.
+
+
+(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+Overfull \hbox (4.98488pt too wide) in paragraph at lines 20--21
+\T2A/cmr/m/n/10 Мы умеем решать задачу для $\OML/cmm/m/it/10 a[] \OMS/cmsy/m/n/
+10 ^^T \OT1/cmr/m/n/10 10[]$\T2A/cmr/m/n/10 . Отсортируем массив по возрастанию
+ и решим независимо
+ []
+
+
+Overfull \hbox (27.58403pt too wide) in paragraph at lines 22--23
+[]\T2A/cmr/m/n/10 Чтобы решить задачу для $\OML/cmm/m/it/10 x[] \OMS/cmsy/m/n/1
+0 ^^T \OT1/cmr/m/n/10 10[]$ \T2A/cmr/m/n/10 для суффикса, можно рассмотреть раз
+ности последовательных
+ []
+
 [1
 
 {/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}] (./main.aux) ) 
 Here is how much of TeX's memory you used:
- 15468 strings out of 479045
- 298763 string characters out of 5868686
- 568728 words of memory out of 5000000
- 33222 multiletter control sequences out of 15000+600000
- 473302 words of font info for 33 fonts, out of 8000000 for 9000
+ 15499 strings out of 479045
+ 299270 string characters out of 5868686
+ 574728 words of memory out of 5000000
+ 33240 multiletter control sequences out of 15000+600000
+ 475001 words of font info for 41 fonts, out of 8000000 for 9000
  811 hyphenation exceptions out of 8191
- 84i,5n,89p,434b,158s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 84i,5n,89p,1074b,158s stack positions out of 5000i,500n,10000p,200000b,80000s
  </home/user
 /.texlive2021/texmf-var/fonts/pk/ljfour/lh/lh-t2a/larm1000.600pk> </home/user/.
 texlive2021/texmf-var/fonts/pk/ljfour/lh/lh-t2a/labx1440.600pk> </home/user/.te
-xlive2021/texmf-var/fonts/pk/ljfour/lh/lh-t2a/labx0900.600pk>
-Output written on main.pdf (1 page, 6399 bytes).
+xlive2021/texmf-var/fonts/pk/ljfour/lh/lh-t2a/labx0900.600pk></usr/share/texliv
+e/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texm
+f-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dist/
+fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/t
+ype1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
+blic/amsfonts/cm/cmr5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
+fonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm
+/cmsy10.pfb>
+Output written on main.pdf (1 page, 89706 bytes).
 PDF statistics:
- 41 PDF objects out of 1000 (max. 8388607)
- 19 compressed objects within 1 object stream
+ 123 PDF objects out of 1000 (max. 8388607)
+ 40 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  13 words of extra memory for PDF output out of 10000 (max. 10000000)
 

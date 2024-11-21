@@ -9,7 +9,7 @@ def generate_numbers():
     numbers_json = open('./numbers.json','w')
     numbers = {}
     alphabet = 'abcdefghijklmnopqrstuvwxyz'
-    for i in range(100000):
+    for i in range(10000):
         namelen = random.randint(1,5)
         name = ''
         for j in range(namelen):

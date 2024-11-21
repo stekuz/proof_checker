@@ -2,3 +2,93 @@
 Given $A=\{a\in\mathbb{R}\mid a<3\}$ and $B=\{b\in\mathbb{R}\mid b>5\}$ prove that for all $a\in A$ and $b\in B$: $a<b$.
 \\\proof
 Consider any $a\in A$ and any $b\in B$. Since $a<3$ and $b>5$ and $5>3$, $a<b$.
+
+\\\description
+reals: Set:{
+    set_name: 'reals'
+    object_type: 'number'
+    content: 'axiomatic:reals'
+}
+
+bool: Set:{
+    set_name: 'bool'
+    object_type: 'integer'
+    content: {0,1}
+}
+
+comp: Function:{
+    function_name: 'comp_a'
+    input_set_name: 'axiomatic:cartesian_product(reals,reals)'
+    output_set_name: 'bool'
+    realization:
+        (a,b):
+            return max(a,b)
+}
+
+n3: Atom:{
+    atom_name: 'n3'
+    type_name: 'real'
+    content: 3
+}
+
+n5: Atom:{
+    atom_name: 'n3'
+    type_name: 'real'
+    content: 5
+}
+
+A: Set:{
+    set_name: 'A'
+    object_type: 'number'
+    content: ['reals', comp(a,n3)==n3 and a!=n3]
+}
+
+B: Set:{
+    set_name: 'B'
+    object_type: 'number'
+    content: ['reals', comp(b,n5)==b and b!=n5]
+}
+
+a: Atom:{
+    atom_name: 'a'
+    type_name: 'real'
+    content: 'in:A'
+}
+
+b: Atom:{
+    atom_name: 'b'
+    type_name: 'real'
+    content: 'in:B'
+}
+
+cond_a: Action:{
+    actor_name: 'cond_a'
+    input_list: [a,n3]
+    function_name: 'comp'
+}
+
+cond_b: Action:{
+    actor_name: 'cond_b'
+    input_list: [n5,b]
+    function_name: 'comp'
+}
+
+cond_35: Action:{
+    actor_name: 'cond_35'
+    input_list: [n3,n5]
+    function_name: 'comp'
+}
+
+cond_ab: Action:{
+    actor_name: 'cond_ab'
+    input_list: [a,b]
+    function_name: 'comp'
+}
+
+Нужно вычислить cond_ab
+Для этого:
+    comp(a,n3)=n3
+    comp(n3,n5)=n5
+    comp(n5,b)=b
+    comp(a,b)=comp(a,comp(n5,b))=comp(a,comp(comp(n3,n5),b))=comp(comp(a,n3),comp(n5,b))=comp(n3,comp(n5,b))=comp(comp(n3,n5),b)=comp(n5,b)=b
+То есть применяем ассоциативную операцию в некоторых заранее известных точках

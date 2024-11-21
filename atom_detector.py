@@ -52,7 +52,7 @@ def train_model():
 
     model = keras.Sequential()
     model.add(layers.Embedding(total_chars, 100))
-    model.add(layers.LSTM(120))
+    model.add(layers.LSTM(150))
     model.add(layers.Dropout(0.1))
     #model.add(layers.LSTM(100))
     model.add(layers.Flatten())
@@ -70,19 +70,28 @@ def train_model():
     y_train = keras.utils.to_categorical(y_train, total_chars)
     y_train = np.asarray(y_train).astype('float64')
     cp_callback = keras.callbacks.ModelCheckpoint(filepath='./weights_atom_detector.ckpt.keras')
-    model.fit(x_train, y_train, epochs=20, verbose=2, callbacks=[cp_callback])
+    model.fit(x_train, y_train, batch_size=16, epochs=20, verbose=2, callbacks=[cp_callback])
 
 def use_model():
     mxlen=100
     model = keras.models.load_model('./weights_atom_detector.ckpt.keras', compile=True)
+    print('Ready!')
     while True:
         x = encode_x(input())
-        x = np.asarray([([0]*(mxlen-len(x)))[:] + x[:]]).astype('float64')
-        prediction = model.predict(x)
-        mx = 0
-        mxi = 0
-        for i in range(len(prediction[0])):
-            if prediction[0][i]>0.01:
-                print(chr(i),prediction[0][i])
+        res = ''
+        for j in range(20):
+            x0 = x[:]
+            x = np.asarray([([0]*(mxlen-len(x)))[:] + x[:]]).astype('float64')
+            prediction = model.predict(x)
+            mx = 0
+            mxi = 0
+            for i in range(len(prediction[0])):
+                if prediction[0][i]>mx:
+                    mx = prediction[0][i]
+                    mxi = i
+            res += chr(mxi)
+            x = x0[:] + [mxi]
+        print(res)
+        
 
-train_model()
+use_model()

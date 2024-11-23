@@ -92,3 +92,4 @@ cond_ab: Action:{
     comp(n5,b)=b
     comp(a,b)=comp(a,comp(n5,b))=comp(a,comp(comp(n3,n5),b))=comp(comp(a,n3),comp(n5,b))=comp(n3,comp(n5,b))=comp(comp(n3,n5),b)=comp(n5,b)=b
 То есть применяем ассоциативную операцию в некоторых заранее известных точках
+

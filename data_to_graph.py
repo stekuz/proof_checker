@@ -27,3 +27,4 @@ def atom_to_graph(key,value):
                 if index == -1:
                     break
                 adj_matrix[i][index] = 1
+    return (text,adj_matrix)

@@ -241,7 +241,7 @@ def compare_with_rotated():
     pixels_rotated = [pixels_rotated[i * width:(i + 1) * width] for i in range(height)]
     def f(x, y):
         return ((2 * x + y) % height, (x + y) % width)
-    for i in range(20):
+    for i in range(30):
         new_pixels_original = pixels_original.copy()
         for x in range(height):
             for y in range(width):
@@ -254,7 +254,7 @@ def compare_with_rotated():
                 new_x, new_y = f(x, y)
                 new_pixels_rotated[new_x][new_y] = pixels_rotated[x][y]
         pixels_rotated = new_pixels_rotated.copy()
-    pixels = []
+    pixels = []#сделать усредненное значение для пикселей (среднее из окрестности на изначальной картинке)
     for i in range(height):
         for j in pixels_original[i]:
             pixels.append(j)

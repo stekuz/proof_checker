@@ -5,6 +5,7 @@ import math
 import matplotlib.pyplot as plt
 import pickle
 import sys
+import PIL
 
 sys.setrecursionlimit(100000)
 
@@ -23,7 +24,7 @@ def save_model(filepath):
     np.save(filepath + 'b3.npy', nn.b3)
 
 class AdamOptimizer:
-    def __init__(self, learning_rate=0.01, beta1=0.9, beta2=0.999, epsilon=1e-8):
+    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
         self.learning_rate = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
@@ -48,210 +49,13 @@ class AdamOptimizer:
 
             params[key] -= self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
 
-class FunctionNN:
-    def __init__(self, input_size, hidden_size, output_size, learning_rate=0.000001, leaky_a=0.1, dropout=0, selu_alpha=1.6733, selu_lambda=1.0507):
-        self.W1 = np.random.rand(input_size, hidden_size)
-        self.b1 = np.zeros((1, hidden_size))
-        self.W2 = np.random.rand(hidden_size, hidden_size)
-        self.b2 = np.zeros((1, hidden_size))
-        self.W3 = np.random.rand(hidden_size, output_size)
-        self.b3 = np.zeros((1, output_size))
-        self.learning_rate = learning_rate
-        self.leaky_a = leaky_a
-        self.dropout = dropout
-        self.selu_alpha = selu_alpha
-        self.selu_lambda = selu_lambda
-        self.optimizer = AdamOptimizer()
-        self.optimizer.initialize({
-            'W1': self.W1,
-            'b1': self.b1,
-            'W2': self.W2,
-            'b2': self.b2,
-            'W3': self.W3,
-            'b3': self.b3,
-        })
-
-    def selu(self, x):
-        if x >= 0:
-            return self.selu_lambda * x
-        else:
-            return self.selu_alpha * self.selu_lambda * (math.e ** x - 1)
-
-    def selu_d(self, x):
-        if x >= 0:
-            return self.selu_lambda
-        else:
-            return self.selu_alpha * self.selu_lambda * math.e ** x
-
-    def sigmoid(self, x):
-        return 1 / (1 + np.exp(-x))
-
-    def forward(self, X):
-        self.Z1 = np.dot(X, self.W1) + self.b1
-        for i in range(len(self.Z1)):
-            sm = np.sum(self.Z1[i])
-            if sm == 0:
-                continue
-            for j in range(len(alphabet)):
-                self.Z1[i][j] /= sm
-        self.A1 = []
-        for i in range(len(self.Z1)):
-            self.A1.append([])
-            for j in range(len(self.Z1[i])):
-                self.A1[i].append(self.selu(self.Z1[i][j]))
-        self.A1 = np.array(self.A1)
-        #self.A1 = np.tanh(self.Z1)
-        #self.A1 = self.sigmoid(self.Z1) - 0.5
-        self.Z2 = np.dot(self.A1, self.W2) + self.b2
-        for i in range(len(self.Z2)):
-            sm = np.sum(self.Z2[i])
-            if sm == 0:
-                continue
-            for j in range(len(alphabet)):
-                self.Z2[i][j] /= sm
-        self.A2 = []
-        for i in range(len(self.Z2)):
-            self.A2.append([])
-            for j in range(len(self.Z2[i])):
-                self.A2[i].append(self.selu(self.Z2[i][j]))
-        self.A2 = np.array(self.A2)
-        #self.A2 = np.tanh(self.Z2)
-        #self.A2 = self.sigmoid(self.Z2) - 0.5
-        self.Z3 = np.dot(self.A2, self.W3) + self.b3 
-        #self.leaky_a = random.uniform(max(-1, self.leaky_a - 0.1), min(0, self.leaky_a + 0.1))
-        self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
-        self.learning_rate = max(self.learning_rate, 0.00001)
-        for i in range(len(self.Z3)):
-            sm = np.sum(self.Z3[i])
-            if sm == 0:
-                continue
-            for j in range(len(alphabet)):
-                self.Z3[i][j] /= sm
-        if random.uniform(0,1) < self.dropout:
-            return np.zeros(self.Z3.shape)
-        return self.Z3
-
-    def compute_loss(self, Y_pred, Y_true):
-        return np.mean(abs(Y_pred - Y_true))
-        #print(Y_pred)
-        #print(Y_pred)
-        #print(Y_true)
-
-    def compute_accuracy(self, Y_pred, Y_true):
-        sm = 0
-        for i in range(len(Y_pred)):
-            mx = 0
-            mxi = 0
-            for j in range(len(alphabet)):
-                if mx < Y_pred[i][j]:
-                    mxi = j
-                    mx = Y_pred[i][j]
-            if Y_true[i][mxi] > 0.9:
-                sm += 1
-        return sm / len(Y_pred)
-
-    def backward(self, X, Y_true, Y_pred):
-        m = Y_true.shape[0] 
-        dZ3 = Y_pred - Y_true
-        dW3 = np.dot(self.A2.T, dZ3) / m  
-        db3 = np.sum(dZ3, axis=0, keepdims=True) / m
-
-        dA2 = np.dot(dZ3, self.W3.T) 
-        dZ2 = []
-        for i in range(len(self.Z2)):
-            dZ2.append([])
-            for j in range(len(self.Z2[i])):
-                dZ2[i].append(self.selu_d(self.Z2[i][j]))
-        dZ2 = np.array(dZ2)
-        dZ2 = dA2 * dZ2
-        #dZ2 = dA2 * (1 - np.tanh(self.Z2) ** 2)
-        #dZ2 = dA2 * self.sigmoid(self.Z2) * (1 - self.sigmoid(self.Z2))
-        dW2 = np.dot(self.A1.T, dZ2) / m  
-        db2 = np.sum(dZ2, axis=0, keepdims=True) / m 
-
-        dA1 = np.dot(dZ2, self.W2.T) 
-        dZ1 = []
-        for i in range(len(self.Z1)):
-            dZ1.append([])
-            for j in range(len(self.Z1[i])):
-                dZ1[i].append(self.selu_d(self.Z1[i][j]))
-        dZ1 = np.array(dZ1)
-        dZ1 = dA1 * dZ1
-        #dZ1 = dA1 * (1 - np.tanh(self.Z1) ** 2)
-        #dZ1 = dA1 * self.sigmoid(self.Z1) * (1 - self.sigmoid(self.Z1))
-        dW1 = np.dot(X.T, dZ1) / m  
-        db1 = np.sum(dZ1, axis=0, keepdims=True) / m 
-
-        clipping = 1
-
-        def clip(A, threshold, newval, less):
-            for i in range(len(A)):
-                for j in range(len(A[i])):
-                    if A[i][j] < threshold and less:
-                        A[i][j] = newval
-                    if A[i][j] > threshold and less == 0:
-                        A[i][j] = newval
-        if clipping == 1:
-            threshold = 2
-            clip(dW1, threshold, threshold,  0)
-            clip(dW2, threshold, threshold,  0)
-            clip(dW3, threshold, threshold,  0)
-            clip(db1, threshold, threshold,  0)
-            clip(db2, threshold, threshold,  0)
-            clip(db3, threshold, threshold,  0)
-            clip(self.W1, threshold, threshold,  0)
-            clip(self.W2, threshold, threshold,  0)
-            clip(self.W3, threshold, threshold,  0)
-            clip(self.b1, threshold, threshold,  0)
-            clip(self.b2, threshold, threshold,  0)
-            clip(self.b3, threshold, threshold,  0)
-
-        self.W1 -= self.learning_rate * dW1
-        self.b1 -= self.learning_rate * db1
-        self.W2 -= self.learning_rate * dW2
-        self.b2 -= self.learning_rate * db2
-        self.W3 -= self.learning_rate * dW3
-        self.b3 -= self.learning_rate * db3
-
-        def optimize():
-            self.optimizer.update({
-                'W1': self.W1,
-                'b1': self.b1,
-                'W2': self.W2,
-                'b2': self.b2,
-                'W3': self.W3,
-                'b3': self.b3,
-            }, {
-                'W1': dW1,
-                'b1': db1,
-                'W2': dW2,
-                'b2': db2,
-                'W3': dW3,
-                'b3': db3,
-            })
-
-        optimize()
-
-        #print('d', dW1)
-        #print('w', self.W1)
-
-    def train(self, X, Y, epochs):
-        for epoch in range(epochs):
-            Y_pred = self.forward(X.copy())
-            loss = self.compute_loss(Y_pred.copy(), Y.copy())
-            accuracy = self.compute_accuracy(Y_pred.copy(), Y.copy())
-            self.backward(X, Y_pred, Y)
-            if epoch:
-                print(f'Epoch {epoch}, Loss: {loss}, Accuracy: {accuracy}')
-                save_model('./test_model')
-
-class AnosovApproximationNN:
+class PredictorNN:
     def __init__(self, input_size, hidden_size, output_size, learning_rate=0.001, dropout=0):
-        self.W1 = np.random.rand(input_size, hidden_size)
+        self.W1 = np.random.rand(input_size, hidden_size) * 0.01
         self.b1 = np.zeros((1, hidden_size))
-        self.W2 = np.random.rand(hidden_size, hidden_size)
+        self.W2 = np.random.rand(hidden_size, hidden_size) * 0.01
         self.b2 = np.zeros((1, hidden_size))
-        self.W3 = np.random.rand(hidden_size, output_size)
+        self.W3 = np.random.rand(hidden_size, output_size) * 0.01
         self.b3 = np.zeros((1, output_size))
         self.learning_rate = learning_rate
         self.dropout = dropout
@@ -267,9 +71,9 @@ class AnosovApproximationNN:
 
     def forward(self, X):
         self.Z1 = np.dot(X, self.W1) + self.b1
-        self.A1 = np.tanh(self.Z1)
+        self.A1 = np.array([list(map(lambda x: x * (x > 0), Z1)) for Z1 in self.Z1])
         self.Z2 = np.dot(self.A1, self.W2) + self.b2
-        self.A2 = np.tanh(self.Z2)
+        self.A2 = np.array([list(map(lambda x: x * (x > 0), Z2)) for Z2 in self.Z2])
         self.Z3 = np.dot(self.A2, self.W3) + self.b3 
         #self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
         #self.learning_rate = max(self.learning_rate, 0.00001)
@@ -277,28 +81,11 @@ class AnosovApproximationNN:
             return np.zeros(self.Z3.shape)
         return self.Z3
 
-    def softmax(self, X):
-        return np.exp(X) / np.sum(np.exp(X))
-
     def compute_loss(self, Y_pred, Y_true):
-        Y_pred = self.softmax(Y_pred)
-        loss = 0
-        for i in range(len(Y_pred)):
-            for j in range(len(Y_pred[i])):
-                loss += -Y_true[i][j] * np.log(Y_pred[i][j])
-        return loss / len(Y_pred)
+        return np.mean(abs(Y_pred - Y_true))
 
     def compute_accuracy(self, Y_pred, Y_true):
-        accuracy = 0
-        for i in range(len(Y_pred)):
-            mx = 0
-            mxi = 0
-            for j in range(len(Y_pred[i])):
-                if mx < Y_pred[i][j]:
-                    mx = Y_pred[i][j]
-                    mxi = j
-            accuracy += Y_true[i][mxi] > 0.9
-        return accuracy / len(Y_pred)
+        return 1
 
     def backward(self, X, Y_pred, Y_true):
         m = Y_true.shape[0] 
@@ -307,16 +94,16 @@ class AnosovApproximationNN:
         db3 = np.sum(dZ3, axis=0, keepdims=True) / m
 
         dA2 = np.dot(dZ3, self.W3.T) 
-        dZ2 = dA2 * (1 - np.tanh(self.Z2) ** 2)
+        dZ2 = dA2 * np.array([list(map(lambda x: x > 0, Z2)) for Z2 in self.Z2])
         dW2 = np.dot(self.A1.T, dZ2) / m  
         db2 = np.sum(dZ2, axis=0, keepdims=True) / m 
 
         dA1 = np.dot(dZ2, self.W2.T)
-        dZ1 = dA1 * (1 - np.tanh(self.Z1) ** 2)
+        dZ1 = dA1 * np.array([list(map(lambda x: x > 0, Z1)) for Z1 in self.Z1])
         dW1 = np.dot(X.T, dZ1) / m  
         db1 = np.sum(dZ1, axis=0, keepdims=True) / m 
 
-        clipping = 1
+        clipping = 0
 
         def clip(A, threshold, newval, less):
             for i in range(len(A)):
@@ -383,66 +170,44 @@ def text_to_tokens(text):
     return tokens
 
 def generate_samples():
-    json_output = open('./test_data.json', 'w')
-    data = {
-        'data': []
-    }
-    for i in range(100):
-        A1 = [[1, random.randint(1,100)], [0, 1]]
-        B1 = [[1, 0], [random.randint(1,100), 1]]
-        C1 = np.dot(A1, B1)
-        A2 = [[1, random.randint(1,100)], [0, 1]]
-        B2 = [[1, 0], [random.randint(1,100), 1]]
-        C2 = np.dot(A2, B2)
-        A3 = [[1, random.randint(1,100)], [0, 1]]
-        B3 = [[1, 0], [random.randint(1,100), 1]]
-        X = np.dot(A3, B3)
-        Y = np.dot(np.dot(C1, X),np.linalg.inv(C2))
-        for j in range(len(Y)):
-            for k in range(len(Y[j])):
-                Y[j][k] = round(Y[j][k])
-        data['data'].append([X.tolist(), Y.tolist(), 1])
-    json.dump(data, json_output)
+    output = open('./test_data.txt', 'w')
+    res = ''
+    for i in range(1000):
+        X_sample = []
+        for j in range(2):
+            X_sample.append(random.uniform(0,10))
+        Y_sample = X_sample[1]
+        for j in range(2):
+            res += str(X_sample[j]) + ' '
+        res += str(Y_sample) + '\n'
+    output.write(res)
 
 def train_model():
-    data = json.load(open('./test_data.json', 'r'))['data']
+    data = open('./test_data.txt').readlines()[:100]
+
     X = []
     Y = []
-    for sample in data:
-        X_sample = []
-        for k in range(2):
-            for i in range(len(sample[k])):
-                for j in range(len(sample[k][i])):
-                    X_sample.append(sample[k][i][j])
-        X.append(X_sample)
-        Y.append([0, 1])
-    for i in range(100):
-        X_sample = []
-        for j in range(8):
-            X_sample.append(random.randint(1,10000))
-        X.append(X_sample)
-        Y.append([1, 0])
-    X = X * 10
-    Y = Y * 10
+    for i in range(len(data)):
+        data[i] = list(map(float, data[i].split(' ')))
+        X.append(data[i][:2])
+        Y.append([data[i][2]])
+    X = X * 100
+    Y = Y * 100
     X = np.array(X)
     Y = np.array(Y)
 
     global nn
-    nn = MatrixConjugacyNN(input_size=8, hidden_size=300, output_size=2, learning_rate=0.005, dropout=0)
+    nn = PredictorNN(input_size=2, hidden_size=100, output_size=1, learning_rate=0.001, dropout=0)
     nn.train(X, Y, epochs=1000)
 
 def predict(predictor):
-    predictor = np.array(list(map(int, predictor.split(' '))))
+    predictor = np.array(list(map(float, predictor.split(' '))))
     Y_pred = nn.forward([predictor])
-    print(Y_pred)
-    if Y_pred[0][0] > Y_pred[0][1]:
-        return 0
-    else:
-        return 1
+    return Y_pred[0][0]
 
 def use_model():
     global nn
-    nn = MatrixConjugacyNN(input_size=8, hidden_size=200, output_size=2, learning_rate=0.005, dropout=0)
+    nn = PredictorNN(input_size=2, hidden_size=100, output_size=1, learning_rate=0.001, dropout=0)
     nn.W1 = np.load('./test_modelW1.npy')
     nn.b1 = np.load('./test_modelb1.npy')
     nn.W2 = np.load('./test_modelW2.npy')
@@ -452,12 +217,50 @@ def use_model():
     #print(nn.W1,nn.W2)
     print('ready')
     while True:
-        predictor=input()
-        predicted_class = predict(predictor)
-        print(predicted_class)
+        predictor = input()
+        print(predict(predictor))
 
-train_model()
-use_model()
-#6777 77 88 1 225259 -2925055 220022 -2857051
-#10 1 9 1 26 -23 17 -15
+#train_model()
+#use_model()
 #generate_samples()
+        
+from PIL import Image
+
+def show_image_from_pixels(pixels, width, height):
+    image = Image.new("RGB", (width, height))
+    image.putdata(pixels)
+    image.show()
+
+def compare_with_rotated():
+    im = Image.open('./test.jpg')
+    pixels_original = list(im.getdata())
+    width, height = im.size
+    pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
+    im = im.rotate(30)
+    pixels_rotated = list(im.getdata())
+    pixels_rotated = [pixels_rotated[i * width:(i + 1) * width] for i in range(height)]
+    def f(x, y):
+        return ((2 * x + y) % height, (x + y) % width)
+    for i in range(20):
+        new_pixels_original = pixels_original.copy()
+        for x in range(height):
+            for y in range(width):
+                new_x, new_y = f(x, y)
+                new_pixels_original[new_x][new_y] = pixels_original[x][y]
+        pixels_original = new_pixels_original.copy()
+        new_pixels_rotated = pixels_rotated.copy()
+        for x in range(height):
+            for y in range(width):
+                new_x, new_y = f(x, y)
+                new_pixels_rotated[new_x][new_y] = pixels_rotated[x][y]
+        pixels_rotated = new_pixels_rotated.copy()
+    pixels = []
+    for i in range(height):
+        for j in pixels_original[i]:
+            pixels.append(j)
+        pixels.append((0, 0, 0))
+        for j in pixels_rotated[i]:
+            pixels.append(j)
+    show_image_from_pixels(pixels, 2 * width + 1, height)
+
+compare_with_rotated()

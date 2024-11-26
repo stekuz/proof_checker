@@ -182,47 +182,10 @@ def generate_samples():
         res += str(Y_sample) + '\n'
     output.write(res)
 
-def train_model():
-    data = open('./test_data.txt').readlines()[:100]
-
-    X = []
-    Y = []
-    for i in range(len(data)):
-        data[i] = list(map(float, data[i].split(' ')))
-        X.append(data[i][:2])
-        Y.append([data[i][2]])
-    X = X * 100
-    Y = Y * 100
-    X = np.array(X)
-    Y = np.array(Y)
-
-    global nn
-    nn = PredictorNN(input_size=2, hidden_size=100, output_size=1, learning_rate=0.001, dropout=0)
-    nn.train(X, Y, epochs=1000)
-
 def predict(predictor):
     predictor = np.array(list(map(float, predictor.split(' '))))
     Y_pred = nn.forward([predictor])
     return Y_pred[0][0]
-
-def use_model():
-    global nn
-    nn = PredictorNN(input_size=2, hidden_size=100, output_size=1, learning_rate=0.001, dropout=0)
-    nn.W1 = np.load('./test_modelW1.npy')
-    nn.b1 = np.load('./test_modelb1.npy')
-    nn.W2 = np.load('./test_modelW2.npy')
-    nn.b2 = np.load('./test_modelb2.npy')
-    nn.W3 = np.load('./test_modelW3.npy')
-    nn.b3 = np.load('./test_modelb3.npy')
-    #print(nn.W1,nn.W2)
-    print('ready')
-    while True:
-        predictor = input()
-        print(predict(predictor))
-
-#train_model()
-#use_model()
-#generate_samples()
         
 from PIL import Image
 
@@ -231,17 +194,51 @@ def show_image_from_pixels(pixels, width, height):
     image.putdata(pixels)
     image.show()
 
+def get_shuffled_image(pixels_original, width, height, flatten=0, flattened=0):
+    if flattened:
+        pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
+    def f(x, y):
+        return ((10 * x + y) % height, (9 * x + y) % width)
+    for i in range(10):
+        new_pixels_original = pixels_original.copy()
+        for x in range(height):
+            for y in range(width):
+                new_x, new_y = f(x, y)
+                new_pixels_original[new_x][new_y] = pixels_original[x][y]
+        pixels_original = new_pixels_original.copy()
+    new_pixels_original = pixels_original.copy()
+    d = 3
+    for x in range(height):
+        for y in range(width):
+            avg_original = [0, 0, 0]
+            for xx in range(x - d, x + d + 1):
+                for yy in range(y - d, y + d + 1):
+                    for i in range(3):
+                        avg_original[i] += list(pixels_original[xx % height][yy % width])[i]
+            for i in range(3):
+                avg_original[i] //= (d + d + 1) * (d + d + 1)
+            new_pixels_original[x][y] = list(avg_original)
+    pixels_original = new_pixels_original.copy()
+    if flatten == 0:
+        return pixels_original
+    else:
+        pixels_flattened = []
+        for i in range(height):
+            for j in pixels_original[i]:
+                pixels_flattened.append(j)
+        return pixels_flattened
+
 def compare_with_rotated():
     im = Image.open('./test.jpg')
     pixels_original = list(im.getdata())
     width, height = im.size
     pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
-    im = im.rotate(30)
+    im = im.rotate(90)
     pixels_rotated = list(im.getdata())
     pixels_rotated = [pixels_rotated[i * width:(i + 1) * width] for i in range(height)]
     def f(x, y):
-        return ((2 * x + y) % height, (x + y) % width)
-    for i in range(30):
+        return ((10 * x + y) % height, (9 * x + y) % width)
+    for i in range(10):
         new_pixels_original = pixels_original.copy()
         for x in range(height):
             for y in range(width):
@@ -255,6 +252,27 @@ def compare_with_rotated():
                 new_pixels_rotated[new_x][new_y] = pixels_rotated[x][y]
         pixels_rotated = new_pixels_rotated.copy()
     pixels = []#сделать усредненное значение для пикселей (среднее из окрестности на изначальной картинке)
+    new_pixels_original = pixels_original.copy()
+    new_pixels_rotated = pixels_rotated.copy()
+    d = 3
+    for x in range(height):
+        for y in range(width):
+            avg_original = [0, 0, 0]
+            avg_rotated = [0, 0, 0]
+            for xx in range(x - d, x + d + 1):
+                for yy in range(y - d, y + d + 1):
+                    for i in range(3):
+                        avg_original[i] += list(pixels_original[xx % height][yy % width])[i]
+                        avg_rotated[i] += list(pixels_rotated[xx % height][yy % width])[i]
+            for i in range(3):
+                avg_original[i] //= (d + d + 1) * (d + d + 1)
+                avg_rotated[i] //= (d + d + 1) * (d + d + 1)
+                #avg_original[i] = int(avg_original[i] ** (1 / (d + d + 1) * (d + d + 1)))
+                #avg_rotated[i] = int(avg_rotated[i] ** (1 / (d + d + 1) * (d + d + 1)))
+            new_pixels_original[x][y] = tuple(avg_original)
+            new_pixels_rotated[x][y] = tuple(avg_rotated)
+    pixels_original = new_pixels_original.copy()
+    pixels_rotated = new_pixels_rotated.copy()
     for i in range(height):
         for j in pixels_original[i]:
             pixels.append(j)
@@ -263,4 +281,45 @@ def compare_with_rotated():
             pixels.append(j)
     show_image_from_pixels(pixels, 2 * width + 1, height)
 
-compare_with_rotated()
+import tensorflow as tf
+import keras
+from keras import layers
+
+def train_model():
+    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
+    X_train = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train, axis=3)))
+    X_test = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_test, axis=3)))
+    for i in range(len(X_train)):
+        X_train[i] = np.array(get_shuffled_image(list(X_train[i]), 28, 28))
+        print(i)
+    np.save('./mnist_train.npy', X_train)
+    for i in range(len(X_test)):
+        X_test[i] = get_shuffled_image(list(X_test[i]), 28, 28)
+    np.save('./mnist_train.npy', X_test)
+    X_train = X_train.astype(dtype='float64') / 255
+    X_test = X_test.astype(dtype='float64') / 255
+    num_classes = 10
+    input_shape = (28, 28, 3)
+    Y_train = keras.utils.to_categorical(Y_train, num_classes)
+    Y_test = keras.utils.to_categorical(Y_test, num_classes)
+    model = keras.Sequential(
+        [   
+            keras.Input(shape=input_shape),
+            layers.Conv2D(32, kernel_size=(3, 3), activation="relu"),
+            layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.Conv2D(64, kernel_size=(3, 3), activation="relu"),
+            layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.Flatten(),
+            layers.Dropout(0.5),
+            layers.Dense(num_classes, activation="softmax"),
+        ]
+    )
+    model.summary()
+    batch_size = 128
+    epochs = 15
+    model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=["accuracy"])
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./model_mnist_chaos.ckpt.keras')
+    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
+    
+    
+train_model()

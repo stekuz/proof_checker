@@ -232,6 +232,7 @@ def get_shuffled_image(pixels_original, width, height, flatten=0, flattened=0):
 
 def compare_with_rotated(num):
     im = Image.open('./test.jpg')
+    print(np.array(im.getdata()).shape)
     pixels_original = list(im.getdata())
     width, height = im.size
     pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
@@ -256,6 +257,10 @@ def compare_with_rotated(num):
     pixels = []#сделать усредненное значение для пикселей (среднее из окрестности на изначальной картинке)
     new_pixels_original = pixels_original.copy()
     new_pixels_rotated = pixels_rotated.copy()
+    for i in range(height):
+        for j in range(width):
+            pixels_original[i][j] = list(pixels_original[i][j])
+            pixels_rotated[i][j] = list(pixels_rotated[i][j])
     d = 3
     for x in range(height):
         for y in range(width):
@@ -264,13 +269,13 @@ def compare_with_rotated(num):
             for xx in range(x - d, x + d + 1):
                 for yy in range(y - d, y + d + 1):
                     for i in range(3):
-                        avg_original[i] += list(pixels_original[xx % height][yy % width])[i]
-                        avg_rotated[i] += list(pixels_rotated[xx % height][yy % width])[i]
+                        avg_original[i] += pixels_original[xx % height][yy % width][i]
+                        avg_rotated[i] += pixels_rotated[xx % height][yy % width][i]
             for i in range(3):
                 avg_original[i] //= (d + d + 1) * (d + d + 1)
                 avg_rotated[i] //= (d + d + 1) * (d + d + 1)
-                avg_original[i] /= 255
-                avg_rotated[i] /= 255
+                #avg_original[i] /= 255
+                #avg_rotated[i] /= 255
                 #avg_original[i] = int(avg_original[i] ** (1 / (d + d + 1) * (d + d + 1)))
                 #avg_rotated[i] = int(avg_rotated[i] ** (1 / (d + d + 1) * (d + d + 1)))
             new_pixels_original[x][y] = tuple(avg_original)
@@ -289,8 +294,8 @@ import tensorflow as tf
 import keras
 from keras import layers
 
-def train_model_keras_full():
-    '''
+def train_model_mnist_full():
+    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
     X_train = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train, axis=3)))
     X_test = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_test, axis=3)))
     for i in range(len(X_train)):
@@ -299,9 +304,8 @@ def train_model_keras_full():
     np.save('./mnist_train.npy', X_train)
     for i in range(len(X_test)):
         X_test[i] = get_shuffled_image(list(X_test[i]), 28, 28)
+        print(i, 2)
     np.save('./mnist_test.npy', X_test)
-    '''
-    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
     X_train = np.load('./mnist_train.npy')
     X_test = np.load('./mnist_test.npy')
     X_train = X_train.astype(dtype='float64') / 255
@@ -313,28 +317,36 @@ def train_model_keras_full():
     model = keras.Sequential(
         [   
             keras.Input(shape=input_shape),
-            layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.Conv2D(32, kernel_size=(5, 5), activation='relu', name='firstconv'),
+            layers.AveragePooling2D(pool_size=(2, 2)),
             layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
             layers.MaxPooling2D(pool_size=(2, 2)),
             layers.Flatten(),
-            layers.Dense(256, activation='sigmoid'),
+            layers.Dense(128, activation='sigmoid'),
             layers.Dropout(0.5),
             layers.Dense(num_classes, activation='softmax'),
         ]
     )
-    kernel = (2 / 9) * np.ones((3, 3, 3, 32))
+    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
+    kernel0 = [[0, 0, 0, 0, 0], [0, -2, -2, -2, 0], [0, -2, 16, -2, 0], [0, -2, -2, -2, 0], [0, 0, 0, 0, 0]]
+    kernel = []
+    for i in range(32):
+        kernel.append([])
+        for j in range(3):
+            kernel[i].append(kernel0.copy())
+    kernel = np.array(kernel)
+    kernel = kernel.reshape((5, 5, 3, 32))
     bias = np.zeros((32, ))
     model.get_layer('firstconv').set_weights([kernel, bias])
     model.summary()
-    batch_size = 16
+    batch_size = 64
     epochs = 20
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_3.ckpt.keras')
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_4.ckpt.keras')
     model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
     
-def use_model_keras_full():
-    model = keras.models.load_model('./models_trained/model_mnist_chaos_3.ckpt.keras', compile=True)
+def use_model_mnist_full():
+    model = keras.models.load_model('./models_trained/model_mnist_chaos_4.ckpt.keras', compile=True)
     print(model.summary())
     (_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
     num_classes = 10
@@ -362,25 +374,25 @@ def use_model_keras_full():
         print('Test loss:', score[0])
         print('Test accuracy:', score[1])
 
-#train_model_keras_full()
-#use_model_keras_full()
+#train_model_mnist_full()
+#use_model_mnist_full()
 if 0:
     while True:
         print('ready')
         num = int(input())
         compare_with_rotated(num)
 
-def train_model_keras_trunc():
+def train_model_mnist_trunc():
     (X_train, Y_train_full), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
     X_train_full = np.load('./mnist_train.npy')
     X_test_full = np.load('./mnist_test.npy')
     X_train = []
     Y_train = []
-    num_classes = 9
+    num_classes = 2
     for i in range(len(Y_train_full)):
-        if Y_train_full[i] > 0:
+        if Y_train_full[i] == 2 or Y_train_full[i] == 3:
             X_train.append(X_train_full[i].copy())
-            Y_train.append(Y_train_full[i] - 1)
+            Y_train.append(Y_train_full[i] - 2)
     X_train = np.array(X_train)
     Y_train = np.array(Y_train)
     X_train = X_train.astype(dtype='float64') / 255
@@ -392,7 +404,7 @@ def train_model_keras_trunc():
         [   
             keras.Input(shape=input_shape),
             layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.AveragePooling2D(pool_size=(2, 2)),
             layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
             layers.MaxPooling2D(pool_size=(2, 2)),
             layers.Flatten(),
@@ -402,7 +414,95 @@ def train_model_keras_trunc():
         ]
     )
     #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]]
+    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
+    kernel = []
+    for i in range(32):
+        kernel.append([])
+        for j in range(3):
+            kernel[i].append(kernel0.copy())
+    kernel = np.array(kernel)
+    kernel = kernel.reshape((3, 3, 3, 32))
+    bias = np.zeros((32, ))
+    model.get_layer('firstconv').set_weights([kernel, bias])
+    model.summary()
+    batch_size = 64
+    epochs = 10
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_3.ckpt.keras')
+    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
+
+def use_model_mnist_trunc():
+    model = keras.models.load_model('./models_trained/model_mnist_chaos_3.ckpt.keras', compile=True)
+    print(model.summary())
+    (_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
+    num_classes = 2
+    while True:
+        print('ready')
+        prediction = int(input()) - 2
+        #X_train = np.load('./mnist_train.npy')
+        im = Image.open('./test.jpg')
+        pixels_original = list(im.getdata())
+        width, height = im.size
+        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
+        X_train = X_train.astype(dtype='float64') / 255
+        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
+        Y_test = np.array([prediction])
+        print(Y_test.shape)
+        Y_test = keras.utils.to_categorical(Y_test, num_classes)
+        print(model.predict(X_train))
+        score = model.evaluate(X_train, Y_test, verbose=0)
+        print('Test loss:', score[0])
+        print('Test accuracy:', score[1])
+
+#train_model_mnist_trunc()
+#use_model_mnist_trunc()
+
+def preprocess_dataset():
+    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.fashion_mnist.load_data()
+    X_train = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train, axis=3)))
+    X_test = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_test, axis=3)))
+    for i in range(len(X_train)):
+        X_train[i] = np.array(get_shuffled_image(list(X_train[i]), 28, 28))
+        print(i)
+    np.save('./fashion_mnist_train.npy', X_train)
+    for i in range(len(X_test)):
+        X_test[i] = get_shuffled_image(list(X_test[i]), 28, 28)
+        print(i, 2)
+    np.save('./fashion_mnist_test.npy', X_test)
+    return
+
+def train_model_fashion_mnist():
+    (X_train_full, Y_train_full), (X_test, Y_test) = tf.keras.datasets.fashion_mnist.load_data()
+    #X_train_full = np.load('./fashion_mnist_train.npy')
+    X_test_full = np.load('./fashion_mnist_test.npy')
+    X_train = []
+    Y_train = []
+    for i in range(len(Y_train_full)):
+        if Y_train_full[i] < 2 or True:
+            X_train.append(X_train_full[i].copy())
+            Y_train.append(Y_train_full[i])
+    X_train = np.array(X_train)
+    Y_train = np.array(Y_train)
+    X_train = X_train.astype(dtype='float64') / 255
+    X_test = X_test.astype(dtype='float64') / 255
+    input_shape = (28, 28, 3)
+    num_classes = 10
+    Y_train = keras.utils.to_categorical(Y_train, num_classes)
+    model = keras.Sequential(
+        [   
+            keras.Input(shape=input_shape),
+            layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
+            layers.AveragePooling2D(pool_size=(2, 2)),
+            layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
+            layers.MaxPooling2D(pool_size=(2, 2)),
+            layers.Flatten(),
+            layers.Dense(128, activation='sigmoid'),
+            layers.Dropout(0.5),
+            layers.Dense(num_classes, activation='softmax'),
+        ]
+    )
+    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
+    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
     kernel = []
     for i in range(32):
         kernel.append([])
@@ -416,16 +516,17 @@ def train_model_keras_trunc():
     batch_size = 64
     epochs = 20
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_3.ckpt.keras')
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_fashion_mnist_chaos_2.ckpt.keras')
     model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
 
-def use_model_keras_trunc():
-    model = keras.models.load_model('./models_trained/model_mnist_chaos_best_trunc.ckpt.keras', compile=True)
+def use_model_fashion_mnist():
+    model = keras.models.load_model('./models_trained/model_fashion_mnist_chaos.ckpt.keras', compile=True)
     print(model.summary())
     (_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
+    num_classes = 10
     while True:
         print('ready')
-        prediction = int(input()) - 1
+        prediction = int(input())
         #X_train = np.load('./mnist_train.npy')
         im = Image.open('./test.jpg')
         pixels_original = list(im.getdata())
@@ -433,7 +534,6 @@ def use_model_keras_trunc():
         X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
         X_train = X_train.astype(dtype='float64') / 255
         #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        num_classes = 9
         Y_test = np.array([prediction])
         print(Y_test.shape)
         Y_test = keras.utils.to_categorical(Y_test, num_classes)
@@ -442,71 +542,5 @@ def use_model_keras_trunc():
         print('Test loss:', score[0])
         print('Test accuracy:', score[1])
 
-#train_model_keras_trunc()
-use_model_keras_trunc()
-
-class ConvLayer:
-    def __init__(self, filters, kernel_size):
-        self.filters = filters
-        self.kernel_size = kernel_size
-        self.weights = np.random.randn(filters, kernel_size, kernel_size) * 0.01
-        self.biases = np.zeros((filters, 1))
-
-    def forward(self, input):
-        self.input = input
-        input_depth, input_height, input_width = input.shape
-        filter_height, filter_width = self.kernel_size, self.kernel_size
-        
-        output_height = input_height - filter_height + 1
-        output_width = input_width - filter_width + 1
-        output = np.zeros((self.filters, output_height, output_width))
-
-        for f in range(self.filters):
-            for i in range(output_height):
-                for j in range(output_width):
-                    input_slice = input[:, i:i + filter_height, j:j + filter_width]
-                    output[f, i, j] = np.sum(input_slice * self.weights[f]) + self.biases[f]
-
-        return output
-
-class MaxPoolingLayer:
-    def __init__(self, pool_size):
-        self.pool_size = pool_size
-
-    def forward(self, input):
-        input_depth, input_height, input_width = input.shape
-        pool_height, pool_width = self.pool_size, self.pool_size
-
-        output_height = input_height // pool_height
-        output_width = input_width // pool_width
-        output = np.zeros((input_depth, output_height, output_width))
-
-        for d in range(input_depth):
-            for i in range(output_height):
-                for j in range(output_width):
-                    output[d, i, j] = np.max(input[d, i * pool_height:(i + 1) * pool_height, j * pool_width:(j + 1) * pool_width])
-        
-        return output
-
-class FullyConnectedLayer:
-    def __init__(self, input_size, output_size):
-        self.weights = np.random.randn(output_size, input_size) * 0.01
-        self.biases = np.zeros((output_size, 1))
-
-    def forward(self, input):
-        self.input = input
-        return np.dot(self.weights, input) + self.biases
-
-class CNN:
-    def __init__(self):
-        self.conv1 = ConvLayer(filters=8, kernel_size=3)
-        self.pool1 = MaxPoolingLayer(pool_size=2)
-        self.fc = FullyConnectedLayer(input_size=8 * 6 * 6, output_size=10)
-
-    def forward(self, X):
-        X = self.conv1.forward(X)
-        X = np.maximum(0, X)
-        X = self.pool1.forward(X)
-        X = X.reshape(X.shape[0] * X.shape[1] * X.shape[2], 1)
-        X = self.fc.forward(X)
-        return X
+#train_model_fashion_mnist()
+#use_model_fashion_mnist()

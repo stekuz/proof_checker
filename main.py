@@ -1,453 +1,52 @@
-import random
-import json
-import numpy as np
-import math
-import matplotlib.pyplot as plt
-import pickle
-import sys
-import PIL
-import time
-sys.setrecursionlimit(100000)
-from PIL import Image
-
-def show_image_from_pixels(pixels, width, height):
-    image = Image.new('RGB', (width, height))
-    image.putdata(pixels)
-    image.show()
-
-def get_shuffled_image(pixels_original, width, height, flatten=0, flattened=0):
-    if flattened:
-        pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
-    def f(x, y):
-        return ((10 * x + y) % height, (9 * x + y) % width)
-    for i in range(10):
-        new_pixels_original = pixels_original.copy()
-        for x in range(height):
-            for y in range(width):
-                new_x, new_y = f(x, y)
-                new_pixels_original[new_x][new_y] = pixels_original[x][y]
-        pixels_original = new_pixels_original.copy()
-    new_pixels_original = pixels_original.copy()
-    d = 3
-    avg_original = [0, 0, 0]
-    for x in range(height):
-        for y in range(width):
-            for i in range(3):
-                avg_original[i] = 0
-            for xx in range(x - d, x + d + 1):
-                for yy in range(y - d, y + d + 1):
-                    for i in range(3):
-                        avg_original[i] += pixels_original[xx % height][yy % width][i]
-            for i in range(3):
-                avg_original[i] //= (d + d + 1) * (d + d + 1)
-            new_pixels_original[x][y] = avg_original.copy()
-    pixels_original = new_pixels_original.copy()
-    if flatten == 0:
-        return pixels_original
-    else:
-        pixels_flattened = []
-        for i in range(height):
-            for j in pixels_original[i]:
-                pixels_flattened.append(j)
-        return pixels_flattened
-
-def compare_with_rotated(num):
-    im = Image.open('./test.jpg')
-    print(np.array(im.getdata()).shape)
-    pixels_original = list(im.getdata())
-    width, height = im.size
-    pixels_original = [pixels_original[i * width:(i + 1) * width] for i in range(height)]
-    im = im.rotate(90)
-    pixels_rotated = list(im.getdata())
-    pixels_rotated = [pixels_rotated[i * width:(i + 1) * width] for i in range(height)]
-    def f(x, y):
-        return ((10 * x + y) % height, (9 * x + y) % width)
-    for i in range(num):
-        new_pixels_original = pixels_original.copy()
-        for x in range(height):
-            for y in range(width):
-                new_x, new_y = f(x, y)
-                new_pixels_original[new_x][new_y] = pixels_original[x][y]
-        pixels_original = new_pixels_original.copy()
-        new_pixels_rotated = pixels_rotated.copy()
-        for x in range(height):
-            for y in range(width):
-                new_x, new_y = f(x, y)
-                new_pixels_rotated[new_x][new_y] = pixels_rotated[x][y]
-        pixels_rotated = new_pixels_rotated.copy()
-    pixels = []
-    new_pixels_original = pixels_original.copy()
-    new_pixels_rotated = pixels_rotated.copy()
-    for i in range(height):
-        for j in range(width):
-            pixels_original[i][j] = list(pixels_original[i][j])
-            pixels_rotated[i][j] = list(pixels_rotated[i][j])
-    d = 3
-    for x in range(height):
-        for y in range(width):
-            avg_original = [0, 0, 0]
-            avg_rotated = [0, 0, 0]
-            for xx in range(x - d, x + d + 1):
-                for yy in range(y - d, y + d + 1):
-                    for i in range(3):
-                        avg_original[i] += pixels_original[xx % height][yy % width][i]
-                        avg_rotated[i] += pixels_rotated[xx % height][yy % width][i]
-            for i in range(3):
-                avg_original[i] //= (d + d + 1) * (d + d + 1)
-                avg_rotated[i] //= (d + d + 1) * (d + d + 1)
-            new_pixels_original[x][y] = tuple(avg_original)
-            new_pixels_rotated[x][y] = tuple(avg_rotated)
-    pixels_original = new_pixels_original.copy()
-    pixels_rotated = new_pixels_rotated.copy()
-    for i in range(height):
-        for j in pixels_original[i]:
-            pixels.append(j)
-        pixels.append((0, 0, 0))
-        for j in pixels_rotated[i]:
-            pixels.append(j)
-    show_image_from_pixels(pixels, 2 * width + 1, height)
+#to start 
+#   conda activate tf-gpu
+#   python main.py
 
 import tensorflow as tf
 import keras
 from keras import layers
+import os
+import time
+import matplotlib.pyplot as plt
+import sys
+import numpy as np
+import json
+import random
+import copy
 
-def train_model_mnist_full():
-    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
-    X_train = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train, axis=3)))
-    X_test = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_test, axis=3)))
-    for i in range(len(X_train)):
-        X_train[i] = np.array(get_shuffled_image(list(X_train[i]), 28, 28))
-        print(i)
-    np.save('./mnist_train.npy', X_train)
-    for i in range(len(X_test)):
-        X_test[i] = get_shuffled_image(list(X_test[i]), 28, 28)
-        print(i, 2)
-    np.save('./mnist_test.npy', X_test)
-    X_train = np.load('./mnist_train.npy')
-    X_test = np.load('./mnist_test.npy')
-    X_train = X_train.astype(dtype='float64') / 255
-    X_test = X_test.astype(dtype='float64') / 255
-    num_classes = 10
-    input_shape = (28, 28, 3)
-    Y_train = keras.utils.to_categorical(Y_train, num_classes)
-    Y_test = keras.utils.to_categorical(Y_test, num_classes)
-    model = keras.Sequential(
-        [   
-            keras.Input(shape=input_shape),
-            layers.Conv2D(32, kernel_size=(5, 5), activation='relu', name='firstconv'),
-            layers.AveragePooling2D(pool_size=(2, 2)),
-            layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
-            layers.Flatten(),
-            layers.Dense(128, activation='sigmoid'),
-            layers.Dropout(0.5),
-            layers.Dense(num_classes, activation='softmax'),
-        ]
-    )
-    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[0, 0, 0, 0, 0], [0, -2, -2, -2, 0], [0, -2, 16, -2, 0], [0, -2, -2, -2, 0], [0, 0, 0, 0, 0]]
-    kernel = []
-    for i in range(32):
-        kernel.append([])
-        for j in range(3):
-            kernel[i].append(kernel0.copy())
-    kernel = np.array(kernel)
-    kernel = kernel.reshape((5, 5, 3, 32))
-    bias = np.zeros((32, ))
-    model.get_layer('firstconv').set_weights([kernel, bias])
-    model.summary()
-    batch_size = 64
-    epochs = 20
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_4.ckpt.keras')
-    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
-    
-def use_model_mnist_full():
-    model = keras.models.load_model('./models_trained/model_mnist_chaos_4.ckpt.keras', compile=True)
-    print(model.summary())
-    (_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-    num_classes = 10
-    Y_test = keras.utils.to_categorical(Y_test, num_classes)
-    X_test = np.load('./mnist_test.npy')
-    X_test = X_test.astype(dtype='float64') / 255
-    score = model.evaluate(X_test, Y_test, verbose=0)
-    print(score)
-    while True:
-        print('ready')
-        prediction = int(input())
-        #X_train = np.load('./mnist_train.npy')
-        im = Image.open('./test.jpg')
-        pixels_original = list(im.getdata())
-        width, height = im.size
-        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
-        X_train = X_train.astype(dtype='float64') / 255
-        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        num_classes = 10
-        Y_test = np.array([prediction])
-        print(Y_test.shape)
-        Y_test = keras.utils.to_categorical(Y_test, num_classes)
-        print(model.predict(X_train))
-        score = model.evaluate(X_train, Y_test, verbose=0)
-        print('Test loss:', score[0])
-        print('Test accuracy:', score[1])
+sys.setrecursionlimit(100000)
+os.environ['CUDA_VISIBLE_DEVICES'] = "0" 
 
-#train_model_mnist_full()
-#use_model_mnist_full()
-def compare():
-    while True:
-        print('ready')
-        num = int(input())
-        compare_with_rotated(num)
+#data = json.load(open('/home/user/Desktop/proofs_dataset/number_theory.json', 'r'))
+data_train = []
+with open('/home/user/Desktop/datasets/gsm8k_train.jsonl', 'r') as f:
+    for line in f:
+        data_train.append(json.loads(line))
+all_tokens = {}
 
-def train_model_mnist_trunc():
-    (X_train, Y_train_full), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
-    X_train_full = np.load('./mnist_train.npy')
-    X_test_full = np.load('./mnist_test.npy')
-    X_train = []
-    Y_train = []
-    num_classes = 2
-    for i in range(len(Y_train_full)):
-        if Y_train_full[i] == 2 or Y_train_full[i] == 3:
-            X_train.append(X_train_full[i].copy())
-            Y_train.append(Y_train_full[i] - 2)
-    X_train = np.array(X_train)
-    Y_train = np.array(Y_train)
-    X_train = X_train.astype(dtype='float64') / 255
-    X_test = X_test.astype(dtype='float64') / 255
-    input_shape = (28, 28, 3)
-    Y_train = keras.utils.to_categorical(Y_train, num_classes)
-    #Y_test = keras.utils.to_categorical(Y_test, num_classes)
-    model = keras.Sequential(
-        [   
-            keras.Input(shape=input_shape),
-            layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
-            layers.AveragePooling2D(pool_size=(2, 2)),
-            layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
-            layers.Flatten(),
-            layers.Dense(128, activation='sigmoid'),
-            layers.Dropout(0.5),
-            layers.Dense(num_classes, activation='softmax'),
-        ]
-    )
-    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
-    kernel = []
-    for i in range(32):
-        kernel.append([])
-        for j in range(3):
-            kernel[i].append(kernel0.copy())
-    kernel = np.array(kernel)
-    kernel = kernel.reshape((3, 3, 3, 32))
-    bias = np.zeros((32, ))
-    model.get_layer('firstconv').set_weights([kernel, bias])
-    model.summary()
-    batch_size = 64
-    epochs = 10
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_3.ckpt.keras')
-    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
+def all_tokens_nt():
+    for theorem in data['theorems']:
+        for statement in theorem['contents']:
+            for character in statement:
+                all_tokens[character] = 1
+        for proof in theorem['proofs']:
+            for statement in proof['contents']:
+                for character in statement:
+                    all_tokens[character] = 1
 
-def use_model_mnist_trunc():
-    model = keras.models.load_model('./models_trained/model_mnist_chaos_3.ckpt.keras', compile=True)
-    print(model.summary())
-    (_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-    num_classes = 2
-    while True:
-        print('ready')
-        prediction = int(input()) - 2
-        #X_train = np.load('./mnist_train.npy')
-        im = Image.open('./test.jpg')
-        pixels_original = list(im.getdata())
-        width, height = im.size
-        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
-        X_train = X_train.astype(dtype='float64') / 255
-        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        Y_test = np.array([prediction])
-        print(Y_test.shape)
-        Y_test = keras.utils.to_categorical(Y_test, num_classes)
-        print(model.predict(X_train))
-        score = model.evaluate(X_train, Y_test, verbose=0)
-        print('Test loss:', score[0])
-        print('Test accuracy:', score[1])
+def all_tokens_gsm8k():
+    for sample in data_train:
+        for char in sample['question']:
+            all_tokens[char] = 1
+    for sample in data_train:
+        for char in sample['answer']:
+            all_tokens[char] = 1
 
-#train_model_mnist_trunc()
-#use_model_mnist_trunc()
+all_tokens_gsm8k()
 
-def preprocess_dataset():
-    (X_train, Y_train), (X_test, Y_test) = tf.keras.datasets.fashion_mnist.load_data()
-    X_train = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train, axis=3)))
-    X_test = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_test, axis=3)))
-    for i in range(len(X_train)):
-        X_train[i] = np.array(get_shuffled_image(list(X_train[i]), 28, 28))
-        print(i)
-    np.save('./fashion_mnist_train.npy', X_train)
-    for i in range(len(X_test)):
-        X_test[i] = get_shuffled_image(list(X_test[i]), 28, 28)
-        print(i, 2)
-    np.save('./fashion_mnist_test.npy', X_test)
-    return
-
-def train_model_fashion_mnist():
-    (X_train_full, Y_train_full), (X_test, Y_test) = tf.keras.datasets.fashion_mnist.load_data()
-    #X_train_full = np.load('./fashion_mnist_train.npy')
-    X_test_full = np.load('./fashion_mnist_test.npy')
-    X_train = []
-    Y_train = []
-    for i in range(len(Y_train_full)):
-        if Y_train_full[i] < 2 or True:
-            X_train.append(X_train_full[i].copy())
-            Y_train.append(Y_train_full[i])
-    X_train = np.array(X_train)
-    Y_train = np.array(Y_train)
-    X_train = X_train.astype(dtype='float64') / 255
-    X_test = X_test.astype(dtype='float64') / 255
-    input_shape = (28, 28, 3)
-    num_classes = 10
-    Y_train = keras.utils.to_categorical(Y_train, num_classes)
-    model = keras.Sequential(
-        [   
-            keras.Input(shape=input_shape),
-            layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
-            layers.AveragePooling2D(pool_size=(2, 2)),
-            layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
-            layers.Flatten(),
-            layers.Dense(128, activation='sigmoid'),
-            layers.Dropout(0.5),
-            layers.Dense(num_classes, activation='softmax'),
-        ]
-    )
-    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
-    kernel = []
-    for i in range(32):
-        kernel.append([])
-        for j in range(3):
-            kernel[i].append(kernel0.copy())
-    kernel = np.array(kernel)
-    kernel = kernel.reshape((3, 3, 3, 32))
-    bias = np.zeros((32, ))
-    model.get_layer('firstconv').set_weights([kernel, bias])
-    model.summary()
-    batch_size = 64
-    epochs = 20
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_fashion_mnist_chaos_2.ckpt.keras')
-    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
-
-def use_model_fashion_mnist():
-    model = keras.models.load_model('./models_trained/model_fashion_mnist_chaos.ckpt.keras', compile=True)
-    print(model.summary())
-    num_classes = 10
-    while True:
-        print('ready')
-        prediction = int(input())
-        #X_train = np.load('./mnist_train.npy')
-        im = Image.open('./test.jpg')
-        pixels_original = list(im.getdata())
-        width, height = im.size
-        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
-        X_train = X_train.astype(dtype='float64') / 255
-        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        Y_test = np.array([prediction])
-        print(Y_test.shape)
-        Y_test = keras.utils.to_categorical(Y_test, num_classes)
-        print(model.predict(X_train))
-        score = model.evaluate(X_train, Y_test, verbose=0)
-        print('Test loss:', score[0])
-        print('Test accuracy:', score[1])
-
-#train_model_fashion_mnist()
-#use_model_fashion_mnist()
-
-def train_model_fashion_mnist_ordinary():
-    (X_train_full, Y_train_full), (X_test, Y_test) = tf.keras.datasets.fashion_mnist.load_data()
-    X_train_full = np.array(tf.image.grayscale_to_rgb(tf.expand_dims(X_train_full, axis=3)))
-    #X_train_full = np.load('./fashion_mnist_train.npy')
-    #X_test_full = np.load('./fashion_mnist_test.npy')
-    X_train = []
-    Y_train = []
-    for i in range(len(Y_train_full)):
-        if Y_train_full[i] < 2 or True:
-            X_train.append(X_train_full[i].copy())
-            Y_train.append(Y_train_full[i])
-    X_train = np.array(X_train)
-    Y_train = np.array(Y_train)
-    X_train = X_train.astype(dtype='float64') / 255
-    X_test = X_test.astype(dtype='float64') / 255
-    input_shape = (28, 28, 3)
-    num_classes = 10
-    Y_train = keras.utils.to_categorical(Y_train, num_classes)
-    model = keras.Sequential(
-        [   
-            keras.Input(shape=input_shape),
-            layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv'),
-            layers.AveragePooling2D(pool_size=(2, 2)),
-            layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv'),
-            layers.MaxPooling2D(pool_size=(2, 2)),
-            layers.Flatten(),
-            layers.Dense(128, activation='sigmoid'),
-            layers.Dropout(0.5),
-            layers.Dense(num_classes, activation='softmax'),
-        ]
-    )
-    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
-    kernel = []
-    for i in range(32):
-        kernel.append([])
-        for j in range(3):
-            kernel[i].append(kernel0.copy())
-    kernel = np.array(kernel)
-    kernel = kernel.reshape((3, 3, 3, 32))
-    bias = np.zeros((32, ))
-    model.get_layer('firstconv').set_weights([kernel, bias])
-    model.summary()
-    batch_size = 64
-    epochs = 20
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_fashion_mnist_ordinary.ckpt.keras')
-    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
-
-def use_model_fashion_mnist_ordinary():
-    model = keras.models.load_model('./models_trained/model_fashion_mnist_ordinary.ckpt.keras', compile=True)
-    print(model.summary())
-    num_classes = 10
-    while True:
-        print('ready')
-        prediction = int(input())
-        #X_train = np.load('./mnist_train.npy')
-        im = Image.open('./test.jpg')
-        pixels_original = list(im.getdata())
-        width, height = im.size
-        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
-        X_train = X_train.astype(dtype='float64') / 255
-        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        Y_test = np.array([prediction])
-        print(Y_test.shape)
-        Y_test = keras.utils.to_categorical(Y_test, num_classes)
-        print(model.predict(X_train))
-        score = model.evaluate(X_train, Y_test, verbose=0)
-        print('Test loss:', score[0])
-        print('Test accuracy:', score[1])
-
-#train_model_fashion_mnist_ordinary()
-#use_model_fashion_mnist_ordinary()
-
-alphabet = 'abcdefghijklmnopqrstuvwxyz'
-alphabet += alphabet.upper()
-alphabet += ' ,.\n;:-()'
-alphabet += '1234567890'
-
-def save_model(filepath):
-    global nn
-    np.save(filepath + 'W1.npy', nn.W1)
-    np.save(filepath + 'b1.npy', nn.b1)
-    np.save(filepath + 'W2.npy', nn.W2)
-    np.save(filepath + 'b2.npy', nn.b2)
-    np.save(filepath + 'W3.npy', nn.W3)
-    np.save(filepath + 'b3.npy', nn.b3)
+alphabet = ''
+for token in all_tokens:
+    alphabet += token
 
 class AdamOptimizer:
     def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
@@ -460,8 +59,8 @@ class AdamOptimizer:
         self.t = 0
 
     def initialize(self, params):
-        self.m = {key: np.zeros_like(value) for key, value in params.items()}
-        self.v = {key: np.zeros_like(value) for key, value in params.items()}
+        self.m = {key: tf.zeros_like(value) for key, value in params.items()}
+        self.v = {key: tf.zeros_like(value) for key, value in params.items()}
 
     def update(self, params, grads):
         self.t += 1
@@ -473,217 +72,380 @@ class AdamOptimizer:
             m_hat = self.m[key] / (1 - self.beta1 ** self.t)
             v_hat = self.v[key] / (1 - self.beta2 ** self.t)
 
-            params[key] -= self.learning_rate * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            params[key] -= self.learning_rate * m_hat / (tf.sqrt(v_hat) + self.epsilon)
+        
+        return params
 
-class PredictorNN:
-    def __init__(self, input_size, hidden_size, output_size, learning_rate=0.001, dropout=0):
-        self.W1 = np.random.rand(input_size, hidden_size) * 0.01
-        self.b1 = np.zeros((1, hidden_size))
-        self.W2 = np.random.rand(hidden_size, hidden_size) * 0.01
-        self.b2 = np.zeros((1, hidden_size))
-        self.W3 = np.random.rand(hidden_size, output_size) * 0.01
-        self.b3 = np.zeros((1, output_size))
+class FeedForwardLayer:
+    def __init__(self, input_size, hidden_size, output_size, index, learning_rate=0.001, dropout=0):
+        def xavier_initialization(shape):
+            return tf.random.uniform(shape, minval=-np.sqrt(6 / (shape[0] + shape[1])), maxval=np.sqrt(6 / (shape[0] + shape[1])), dtype='float32')
+        self.W1 = xavier_initialization((input_size, hidden_size))
+        self.b1 = tf.zeros((1, hidden_size), dtype='float32')
+        self.W2 = xavier_initialization((hidden_size, output_size))
+        self.b2 = tf.zeros((1, output_size), dtype='float32')
+        self.index = index
         self.learning_rate = learning_rate
         self.dropout = dropout
-        self.optimizer = AdamOptimizer()
+        self.optimizer = AdamOptimizer(learning_rate=learning_rate, epsilon=1e-7)
         self.optimizer.initialize({
             'W1': self.W1,
             'b1': self.b1,
             'W2': self.W2,
             'b2': self.b2,
-            'W3': self.W3,
-            'b3': self.b3,
         })
 
-    def forward(self, X):
-        self.Z1 = np.dot(X, self.W1) + self.b1
-        self.A1 = np.array([list(map(lambda x: x * (x > 0), Z1)) for Z1 in self.Z1])
-        self.Z2 = np.dot(self.A1, self.W2) + self.b2
-        self.A2 = np.array([list(map(lambda x: x * (x > 0), Z2)) for Z2 in self.Z2])
-        self.Z3 = np.dot(self.A2, self.W3) + self.b3 
+    def forward(self, X, output=0):
+        self.Z1 = tf.linalg.matmul(X, self.W1) + self.b1
+        self.A1 = tf.nn.relu(self.Z1)
+        self.Z2 = tf.linalg.matmul(self.A1, self.W2) + self.b2
         #self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
         #self.learning_rate = max(self.learning_rate, 0.00001)
-        if random.uniform(0,1) < self.dropout:
-            return np.zeros(self.Z3.shape)
-        return self.Z3
+        dropout_mask = tf.cast(tf.random.uniform(self.Z2.shape) >= self.dropout, dtype='float32')
+        if output:
+            return dropout_mask * tf.nn.sigmoid(self.Z2)
+        else:
+            return dropout_mask * tf.nn.relu(self.Z2)
 
     def compute_loss(self, Y_pred, Y_true):
-        return np.mean(abs(Y_pred - Y_true))
+        return tf.reduce_mean(abs(Y_true - Y_pred))
 
     def compute_accuracy(self, Y_pred, Y_true):
-        return 1
+        Y_pred_classes = tf.round(Y_pred)
+        return tf.reduce_mean(tf.cast(tf.equal(Y_true, Y_pred_classes), dtype='float32'))
 
-    def backward(self, X, Y_pred, Y_true):
-        m = Y_true.shape[0] 
-        dZ3 = Y_pred - Y_true
-        dW3 = np.dot(self.A2.T, dZ3) / m  
-        db3 = np.sum(dZ3, axis=0, keepdims=True) / m
+    def backward(self, X, A2, dA2, loss, output=0):
+        m = dA2.shape[0] 
+        if output:
+            dZ2 = dA2 * (tf.nn.sigmoid(A2) * (1 - tf.nn.sigmoid(A2)))
+        else:
+            dZ2 = dA2 * tf.cast(A2 > 0, dtype='float32')
+        dW2 = tf.linalg.matmul(tf.transpose(self.A1), dZ2) / m
+        db2 = tf.math.reduce_sum(dZ2, axis=0, keepdims=True) / m 
 
-        dA2 = np.dot(dZ3, self.W3.T) 
-        dZ2 = dA2 * np.array([list(map(lambda x: x > 0, Z2)) for Z2 in self.Z2])
-        dW2 = np.dot(self.A1.T, dZ2) / m  
-        db2 = np.sum(dZ2, axis=0, keepdims=True) / m 
-
-        dA1 = np.dot(dZ2, self.W2.T)
-        dZ1 = dA1 * np.array([list(map(lambda x: x > 0, Z1)) for Z1 in self.Z1])
-        dW1 = np.dot(X.T, dZ1) / m  
-        db1 = np.sum(dZ1, axis=0, keepdims=True) / m 
-
-        clipping = 0
-
-        def clip(A, threshold, newval, less):
-            for i in range(len(A)):
-                for j in range(len(A[i])):
-                    if A[i][j] < threshold and less:
-                        A[i][j] = newval
-                    if A[i][j] > threshold and less == 0:
-                        A[i][j] = newval
-        if clipping == 1:
-            threshold = 2
-            clip(dW1, threshold, threshold,  0)
-            clip(dW2, threshold, threshold,  0)
-            clip(dW3, threshold, threshold,  0)
-            clip(db1, threshold, threshold,  0)
-            clip(db2, threshold, threshold,  0)
-            clip(db3, threshold, threshold,  0)
-            clip(self.W1, threshold, threshold,  0)
-            clip(self.W2, threshold, threshold,  0)
-            clip(self.W3, threshold, threshold,  0)
-            clip(self.b1, threshold, threshold,  0)
-            clip(self.b2, threshold, threshold,  0)
-            clip(self.b3, threshold, threshold,  0)
-
-        self.W1 -= self.learning_rate * dW1
-        self.b1 -= self.learning_rate * db1
-        self.W2 -= self.learning_rate * dW2
-        self.b2 -= self.learning_rate * db2
-        self.W3 -= self.learning_rate * dW3
-        self.b3 -= self.learning_rate * db3
+        dA1 = tf.linalg.matmul(dZ2, tf.transpose(self.W2))
+        dZ1 = dA1 * tf.cast(self.A1 > 0, dtype='float32')
+        dW1 = tf.linalg.matmul(tf.transpose(X), dZ1) / m 
+        db1 = tf.math.reduce_sum(dZ1, axis=0, keepdims=True) / m 
 
         def optimize():
-            self.optimizer.update({
+            return self.optimizer.update({
                 'W1': self.W1,
                 'b1': self.b1,
                 'W2': self.W2,
                 'b2': self.b2,
-                'W3': self.W3,
-                'b3': self.b3,
             }, {
                 'W1': dW1,
                 'b1': db1,
                 'W2': dW2,
                 'b2': db2,
-                'W3': dW3,
-                'b3': db3,
             })
 
-        optimize()
+        new_params = optimize()
+        self.W1 = new_params['W1']
+        self.b1 = new_params['b1']
+        self.W2 = new_params['W2']
+        self.b2 = new_params['b2']
+
+        return dA1
     
-    def train(self, X, Y, epochs):
-        for epoch in range(epochs):
-            Y_pred = self.forward(X.copy())
-            loss = self.compute_loss(Y_pred.copy(), Y.copy())
-            accuracy = self.compute_accuracy(Y_pred.copy(), Y.copy())
-            self.backward(X, Y_pred, Y)
-            if epoch:
-                print(f'Epoch {epoch}, Loss: {loss}, Accuracy: {accuracy}')
-                save_model('./test_model')
+    def save_model(self, filepath):
+        np.save(filepath + 'dense' + str(self.index) + 'W1.npy', self.W1)
+        np.save(filepath + 'dense' + str(self.index) + 'b1.npy', self.b1)
+        np.save(filepath + 'dense' + str(self.index) + 'W2.npy', self.W2)
+        np.save(filepath + 'dense' + str(self.index) + 'b2.npy', self.b2)
+    
+    def load_model(self, filepath):
+        self.W1 = np.load(filepath + 'dense' + str(self.index) + 'W1.npy')
+        self.b1 = np.load(filepath + 'dense' + str(self.index) + 'b1.npy')
+        self.W2 = np.load(filepath + 'dense' + str(self.index) + 'W2.npy')
+        self.b2 = np.load(filepath + 'dense' + str(self.index) + 'b2.npy')
 
-def text_to_tokens(text):
-    tokens=[]
-    for i in text:
-        tokens.append(alphabet.find(i))
-    return tokens
+class SmartSelectionLayer:
+    def __init__(self, input_shape, hidden_size, output_size, index, learning_rate=0.001):
+        self.index = index
+        self.dense_original = FeedForwardLayer(input_size=input_shape[1] * input_shape[2], hidden_size=hidden_size, output_size=hidden_size, index='ssorig' + str(index), learning_rate=learning_rate)
+        self.dense_chaos = FeedForwardLayer(input_size=input_shape[1] * input_shape[2], hidden_size=hidden_size, output_size=hidden_size, index='sschaos' + str(index), learning_rate=learning_rate)
+        self.dense_combinator = FeedForwardLayer(input_size=hidden_size * 2, hidden_size=2 * hidden_size, output_size=output_size, index='sscomb' + str(index), learning_rate=learning_rate)
+        self.chaos = np.array([[2, 1], [1, 1]], dtype='uint64')
+        for i in range(4):
+            self.chaos = np.dot(self.chaos, self.chaos)
+        self.chaos = tf.convert_to_tensor(self.chaos, dtype='float32')
 
-def generate_samples():
-    output = open('./test_data.txt', 'w')
-    res = ''
-    for i in range(1000):
-        X_sample = []
-        for j in range(2):
-            X_sample.append(random.uniform(0,10))
-        Y_sample = X_sample[1]
-        for j in range(2):
-            res += str(X_sample[j]) + ' '
-        res += str(Y_sample) + '\n'
-    output.write(res)
+    def forward(self, X):
+        X_chaos = copy.deepcopy(X)
+        for i in range(len(X_chaos)):
+            X_chaos[i] = tf.transpose(tf.linalg.matmul(self.chaos, X_chaos[i].T)) % 1
+        Y_pred_original = self.dense_original.forward(tf.reshape(X, (X.shape[0], X.shape[1] * X.shape[2])))
+        self.A2_original = Y_pred_original
+        Y_pred_chaos = self.dense_chaos.forward(tf.reshape(X_chaos, (X_chaos.shape[0], X_chaos.shape[1] * X_chaos.shape[2])))
+        self.A2_chaos = Y_pred_chaos
+        Y_pred_to_combinator = tf.concat((Y_pred_original, Y_pred_chaos), axis=1)
+        Y_pred_final = self.dense_combinator.forward(Y_pred_to_combinator)
+        return Y_pred_final
+    
+    def backward(self, X, Y_pred, Y_true, loss):
+        X_chaos = copy.deepcopy(X)
+        for i in range(len(X_chaos)):
+            X_chaos[i] = tf.transpose(tf.linalg.matmul(self.chaos, X_chaos[i].T)) % 1
+        X = tf.reshape(X, (X.shape[0], X.shape[1] * X.shape[2]))
+        X_chaos = tf.reshape(X_chaos, (X_chaos.shape[0], X_chaos.shape[1] * X_chaos.shape[2]))
+        dA2_final = self.dense_combinator.backward(tf.concat((self.dense_original.A1, self.dense_chaos.A1), axis=1), Y_pred, Y_pred - Y_true, loss)
+        dA2_original = self.dense_original.backward(X, self.A2_original, dA2_final[:, :self.dense_original.W1.shape[1]], loss)
+        dA2_chaos = self.dense_chaos.backward(X_chaos, self.A2_chaos, dA2_final[:, self.dense_chaos.W1.shape[1]:], loss)
+        return (dA2_original, dA2_chaos)
+    
+    def save_model(self, filepath):
+        self.dense_original.save_model(filepath)
+        self.dense_chaos.save_model(filepath)
+        self.dense_combinator.save_model(filepath)
+    
+    def load_model(self, filepath):
+        self.dense_original.load_model(filepath)
+        self.dense_chaos.load_model(filepath)
+        self.dense_combinator.load_model(filepath)
 
-def predict(predictor):
-    predictor = np.array(list(map(float, predictor.split(' '))))
-    Y_pred = nn.forward([predictor])
-    return Y_pred[0][0]
 
-#compare()
+def keras_example_model_xor():
+    X = [[0, 0], [0, 1], [1, 0], [1, 1]] * 100
+    Y = [[0], [1], [1], [0]] * 100
+    X = np.array(X, dtype='float32')
+    Y = np.array(Y, dtype='float32')
 
-def train_model_mnist_attention():
-    (X_train_full, Y_train_full), (X_test, Y_test) = tf.keras.datasets.mnist.load_data()
-    X_train_full = np.load('./shuffled_datasets/mnist_train.npy')
-    #X_test_full = np.load('./shuffled_datasets/mnist_test.npy')
-    X_train = []
-    Y_train = []
-    for i in range(len(Y_train_full)):
-        if True:
-            X_train.append(X_train_full[i].copy())
-            Y_train.append(Y_train_full[i])
-    X_train = np.array(X_train)
-    Y_train = np.array(Y_train)
-    X_train = X_train.astype(dtype='float64') / 255
-    X_test = X_test.astype(dtype='float64') / 255
-    input_shape = (28, 28, 3)
-    num_classes = 10
-    batch_size = 64
-    Y_train = keras.utils.to_categorical(Y_train, num_classes)
-    inputs = layers.Input(shape=input_shape)
-    conv2d1 = layers.Conv2D(32, kernel_size=(3, 3), activation='relu', name='firstconv')(inputs)
-    avgpool2d = layers.AveragePooling2D(pool_size=(2, 2))(conv2d1)
-    conv2d2 = layers.Conv2D(64, kernel_size=(3, 3), activation='relu', name='secondconv')(avgpool2d)
-    maxpool2d = layers.MaxPooling2D(pool_size=(2, 2))(conv2d2)
-    flatten1 = layers.Flatten()(maxpool2d)
-    dense1 = layers.Dense(128, activation='relu')(flatten1)
-    dense1_expanded = layers.Reshape((128, 1))(dense1)
-    attention = layers.Attention()([dense1_expanded, dense1_expanded])
-    dropout = layers.Dropout(0.5)(attention)
-    flatten2 = layers.Flatten()(dropout)
-    outputs = layers.Dense(num_classes, activation='softmax')(flatten2)
+    model = keras.Sequential([
+        layers.Input((1, 2)),
+        layers.Dense(5, activation='relu'),
+        layers.Dense(5, activation='relu'),
+        layers.Dense(1, activation='relu')
+    ])
+
+    model.compile(loss='mse', optimizer='adam', metrics=['accuracy'])
+
+    model.fit(X, Y, batch_size=1, epochs=10)
+
+def train_model_keras():
+    X_full = np.load('/home/user/Desktop/datasets/checker_train_x_flatten.npy') / (len(alphabet) + 1)
+    def preprocess_chaos():
+        X = []
+        for i in range(len(X_full)):
+            print(i)
+            X.append([])
+            for j in range(len(X_full[i])):
+                X[i].append([j / len(X_full[i]), X_full[i][j]])
+        X = np.array(X, dtype='float32')
+        np.save('/home/user/Desktop/datasets/checker_train_x_chaos.npy', X)
+    X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
+    chaos = np.array([[2, 1], [1, 1]], dtype='uint64')
+    for i in range(4):
+        chaos = np.dot(chaos, chaos)
+    chaos = np.array(chaos, dtype='float32')
+    for i in range(len(X)):
+        X[i] = np.dot(chaos, X[i].T).T
+    X = np.reshape(X, (X.shape[0], 2 * X.shape[1], 1))
+    Y = np.load('/home/user/Desktop/datasets/checker_train_y.npy')
+    input_shape = (X.shape[1], 1, )
+    inputs = keras.Input(shape=input_shape)
+    lstm1 = layers.LSTM(32, activation='relu', return_sequences=True)(inputs)
+    conv1 = layers.Conv1D(32, (3), activation='relu')(lstm1)
+    avgpool1 = layers.AveragePooling1D(100)(conv1)
+    flatten1 = layers.Flatten()(avgpool1)
+    #dense1 = layers.Dense(32, activation='relu')(flatten1)
+    dense2 = layers.Dense(32, activation='relu')(flatten1)
+    dense3 = layers.Dense(100, activation='relu')(dense2)
+    flatten2 = layers.Flatten()(dense3)
+    #layers.LSTM(200, activation='relu', return_sequences=False),
+    dropout = layers.Dropout(0.1)(flatten2)
+    outputs = layers.Dense(2, activation='softmax')(dropout)
+    #model = keras.models.load_model('./models_trained/checker_keras.ckpt.keras')
     model = keras.models.Model(inputs=inputs, outputs=outputs)
-    #kernel = (2 / 9) * np.ones((3, 3, 3, 32))
-    kernel0 = [[-2, -2, -2], [-2, 16, -2], [-2, -2, -2]]
-    kernel = []
-    for i in range(32):
-        kernel.append([])
-        for j in range(3):
-            kernel[i].append(kernel0.copy())
-    kernel = np.array(kernel)
-    kernel = kernel.reshape((3, 3, 3, 32))
-    bias = np.zeros((32, ))
-    model.get_layer('firstconv').set_weights([kernel, bias])
+    batch_size = 64
+    epochs = 300
+    optimizer = keras.optimizers.Adam(learning_rate=0.0001, epsilon=1e-8)
+    optimizer = keras.optimizers.SGD(learning_rate=0.1)
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    def preprocessing():
+        X = []
+        Y = []
+        for theorem in data['theorems']:
+            if theorem['id'] < 1000 or True:
+                print(theorem['id'])
+                for proof in theorem['proofs']:
+                    x = []
+                    mxlen = 0
+                    for line in proof['contents']:
+                        x.append([])
+                        for character in line:
+                            x[-1].append(alphabet.find(character))
+                        mxlen = min(input_shape[0], len(x))
+                        to_X = copy.deepcopy(x)
+                        for i in range(len(to_X)):
+                            for j in range(input_shape[1] - len(to_X[i])):
+                                to_X[i].append(len(alphabet))
+                        if len(to_X) > input_shape[0]:
+                            to_X = to_X[-input_shape[0]:]
+                        for i in range(input_shape[0] - mxlen):
+                            to_X.append([len(alphabet)] * input_shape[1])
+                        X.append(copy.deepcopy(to_X))
+                        Y.append([0, 1])
+                    x = copy.deepcopy(to_X)
+                    for i in range(mxlen - 1):
+                        if len(x[i]) > input_shape[1]:
+                            print(len(x[i]))
+                        to_X = []
+                        for j in range(input_shape[0]):
+                            if j == i:
+                                continue
+                            to_X.append(copy.deepcopy(x[j]))
+                        to_X.append([len(alphabet)] * input_shape[1])
+                        X.append(copy.deepcopy(to_X))
+                        Y.append([1, 0])
+        X = np.array(X, dtype='float32')
+        Y = np.array(Y, dtype='float32')
+        np.save('/home/user/Desktop/datasets/checker_train_x.npy', X)
+        np.save('/home/user/Desktop/datasets/checker_train_y.npy', Y)
+    #preprocessing()
     model.summary()
-    epochs = 40
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/model_mnist_chaos_attention.ckpt.keras')
-    model.fit(X_train, Y_train, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
+    cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/checker_keras_2.ckpt.keras')
+    model.fit(X, Y, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
 
-def use_model_mnist_attention():
-    model = keras.models.load_model('./models_trained/model_mnist_chaos_attention.ckpt.keras', compile=True)
-    print(model.summary())
-    num_classes = 10
-    while True:
-        print('ready')
-        prediction = int(input())
-        #X_train = np.load('./mnist_train.npy')
-        im = Image.open('./test.jpg')
-        pixels_original = list(im.getdata())
-        width, height = im.size
-        X_train = np.array([get_shuffled_image(pixels_original, width, height, flattened=1)])
-        X_train = X_train.astype(dtype='float64') / 255
-        #(_, Y_train), (_, Y_test) = tf.keras.datasets.mnist.load_data()
-        Y_test = np.array([prediction])
-        print(Y_test.shape)
-        Y_test = keras.utils.to_categorical(Y_test, num_classes)
-        print(model.predict(X_train))
-        score = model.evaluate(X_train, Y_test, verbose=0)
-        print('Test loss:', score[0])
-        print('Test accuracy:', score[1])
+def use_model_keras():
+    model = keras.models.load_model('./models_trained/checker_keras_2.ckpt.keras')
+    input_shape = (20, 2000, )
+    X = []
+    Y = []
+    mxlen = 0
+    x = []
+    proof = {
+        "contents": [
+                        "Consider the [[Definition:Natural Numbers|natural numbers]] $\\N$ defined as the [[Definition:Naturally Ordered Semigroup|naturally ordered semigroup]] $\\struct {S, \\circ, \\preceq}$.",
+                        "From its definition, $\\strusdsssdsggs {S, \\circ, \\precgssfggfeq}$ is [[Definition:Well-Ordered Set|well-ordered]] by $\\preceq$.",
+                        "The result follows.",
+                        "As $\\N_{\\ne 0} = \\N \\setsrgrgssdfsinus \\set 0$, by [[Set Difference is Subset]] $\\N_{\\ne 0} \\subseteq \\N$.",
+                        "As $\\N$ is [[Definition:Welsgdsgfsgfgsl-Ordered Set|well-ordered]], by definition, every subset of $\\N$ has a [[Definition:Smallest Element|smallest element]].",
+                        "{{qed}}"
+                    ],
+    }
+    for line in proof['contents']:
+        x.append([])
+        for character in line:
+            x[-1].append(alphabet.find(character))
+        mxlen = min(input_shape[0], len(x))
+        to_X = copy.deepcopy(x)
+        for i in range(len(to_X)):
+            for j in range(input_shape[1] - len(to_X[i])):
+                to_X[i].append(len(alphabet))
+        if len(to_X) > input_shape[0]:
+            to_X = to_X[-input_shape[0]:]
+        for i in range(input_shape[0] - mxlen):
+            to_X.append([len(alphabet)] * input_shape[1])
+        X.append(copy.deepcopy(to_X))
+        Y.append([0, 1])
+    print(model.predict(X))
 
-#train_model_mnist_attention()
-use_model_mnist_attention()
+def preprocess_gsm8k():
+    X = []
+    print(np.random.normal())
+    for sample in data_train:
+        X.append([])
+        for i in range(len(sample['answer'])):
+            X[-1].append([i / len(sample['answer']), alphabet.find(sample['answer'][i]) / (len(alphabet) + 1)])
+    mxlen = 0
+    for i in X:
+        mxlen = max(mxlen, len(i))
+    for j in range(len(X)):
+        lenx = len(X[j])
+        for i in range(mxlen - lenx):
+            X[j].append([1, len(alphabet) / (len(alphabet) + 1)])
+        for i in range(mxlen):
+            X[j][i][0] = i / mxlen
+    for i in range(len(data_train)):
+        X.append(X[i])
+        for j in range(mxlen):
+            if random.uniform(0, 1) < 0.3:
+                X[-1][j][1] = len(alphabet) / (len(alphabet) + 1)
+    X = np.array(X, dtype='float32')
+    np.save('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy', X)
+    Y = [[1]] * len(data_train) + [[0]] * len(data_train)
+    Y = np.array(Y, dtype='float32')
+    np.save('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy', Y)
+
+#preprocess_gsm8k()
+
+def train_model():
+    #X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
+    #Y_full = np.load('/home/user/Desktop/datasets/checker_train_y.npy')[:200]
+    X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:100], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + 100]), axis=0)
+    Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:100], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[len(data_train):len(data_train) + 100]), axis=0)
+    print(X.shape)
+    learning_rate = 0.001
+    smartselection1 = SmartSelectionLayer(X.shape, 100, 100, 1, learning_rate=learning_rate / 100)
+    dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
+    dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
+    dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(100, 100, 1, 4, learning_rate=learning_rate, dropout=0)
+    def trainint_loop(epoch):
+        start_time = time.time()
+        Y_pred_ss = smartselection1.forward(X)
+        #print(Y_pred_ss)
+        Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
+        Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
+        Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
+        Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+        print(Y_pred_final)
+        loss = dense_output.compute_loss(Y_pred_final, Y)
+        accuracy = dense_output.compute_accuracy(Y_pred_final, Y)
+        dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, loss, output=1)
+        dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2, loss)
+        dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2, loss)
+        dA2 = dense_middle1.backward(Y_pred_ss, Y_pred_middle1, dA2, loss)
+        (_, _) = smartselection1.backward(X, Y_pred_ss, dA2, loss)
+        print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
+        smartselection1.save_model('./test_model')
+        dense_middle1.save_model('./test_model')
+        dense_middle2.save_model('./test_model')
+        dense_middle3.save_model('./test_model')
+        dense_output.save_model('./test_model')
+
+    for epoch in range(1,100):
+        trainint_loop(epoch)
+
+def use_model():
+    #X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
+    X = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:100]
+    Y = np.load('/home/user/Desktop/datasets/checker_train_y.npy')
+    input_shape = X.shape
+    print(input_shape)
+    learning_rate = 0.01
+    smartselection1 = SmartSelectionLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10)
+    dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
+    dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
+    dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
+    smartselection1.load_model('./test_model')
+    dense_middle1.load_model('./test_model')
+    dense_middle2.load_model('./test_model')
+    dense_middle3.load_model('./test_model')
+    dense_output.load_model('./test_model')
+    
+    content = 'afejoakefjoiaejfioaejfopekaf\'eofjkaporekopt,epokfjopsejfopsjgpojskpofgksd'
+    X = [[]]
+    for i in range(len(content)):
+        X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
+    for i in range(input_shape[1] - len(content)):
+        X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
+    for i in range(input_shape[1]):
+        X[0][i][0] = i / input_shape[1]
+    X = np.array(X, dtype='float32')
+    print(X.shape)
+    Y_pred_ss = smartselection1.forward(X)
+    Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
+    Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
+    Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
+    Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+    print(Y_pred_final)
+
+train_model()
+#use_model()
+#train_model_keras()
+#use_model_keras()

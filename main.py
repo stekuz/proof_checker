@@ -560,16 +560,23 @@ def train_model():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 100
+        samples_selected = 200
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
         print('now')
         #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
         X = [X[0]]
-        for i in range(100):
+        to_change = []
+        for i in range(len(X[0])):
+            index = round(X[0][i][1] * (len(alphabet) + 1))
+            if index < len(alphabet):
+                if alphabet[index] in '0123456789':
+                    to_change.append(alphabet[index])
+        to_change = list(set(to_change))
+        for i in range(samples_selected):
             X.append(copy.deepcopy(X[0]))
-            change_from = str(i // 10)
+            change_from = to_change[random.randint(0, len(to_change) - 1)]
             change_to = str(random.randint(0, 9))
             for k in range(2):
                 if random.randint(0, 9) < 5:
@@ -588,29 +595,30 @@ def train_model():
             X_add = X_add[:shape[0]]
             for j in range(len(X_add)):
                 X_add[j][0] = j / len(X_add)
-            X[i] = copy.deepcopy(X_add)
-        for i in range(101):
+            X[-1] = copy.deepcopy(X_add)
+        for i in range(samples_selected + 1):
             X.append(copy.deepcopy(X[i]))
+            threshold = random.uniform(0, 1)
             for j in range(len(X[0])):
                 index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
-                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < 0.1:
+                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < threshold:
                         X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
-        Y = [[1]] * 101 + [[0]] * 101
+        Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
 
     print(X.shape)
-    '''for i in range(len(X)):
+    for i in range(len(X)):
         res = ''
         for j in range(len(X[i])):
             index = round(X[i][j][1] * (len(alphabet) + 1))
             if index < len(alphabet):
                 res += alphabet[index]
-        print(res, Y[i])'''
+        print(res, Y[i])
     learning_rate = 0.001
     hidden_size = 100
-    total_input = 11
+    total_input = 7
     smartselection1 = SmartSelectionLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
@@ -650,7 +658,8 @@ def train_model():
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
 
-content = {"question": "Natalia sold clips to 43 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "answer": "Natalia sold 5656/2 = <<5656/2=256>>256 clips in May.\nNatalia sold 5656+256 = <<5656+256=72>>72 clips altogether in April and May.\n#### 72"}
+content = {"question": "Natalia sold clips to 79 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+           "answer": "Natalia sold 79/2 = <<79/2=24>>24 clips in May.\nNatalia sold 79+24 = <<79+24=72>>72 clips altogether in April and May.\n#### 72"}
 content = content['question'] + content['answer']
 content = list(content)
 for i in range(len(content)):
@@ -671,7 +680,7 @@ def use_model():
     input_shape = X_full.shape
     print(input_shape)
     learning_rate = 0.01
-    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=11)
+    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=7)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
@@ -723,16 +732,23 @@ def train_model_simple():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 100
+        samples_selected = 200
         X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X_full[0].shape
         print('now')
-        #print(X)
+        #print(X_full)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
         X_full = [X_full[0]]
-        for i in range(100):
+        to_change = []
+        for i in range(len(X_full[0])):
+            index = round(X_full[0][i][1] * (len(alphabet) + 1))
+            if index < len(alphabet):
+                if alphabet[index] in '0123456789':
+                    to_change.append(alphabet[index])
+        to_change = list(set(to_change))
+        for i in range(samples_selected):
             X_full.append(copy.deepcopy(X_full[0]))
-            change_from = str(i // 10)
+            change_from = to_change[random.randint(0, len(to_change) - 1)]
             change_to = str(random.randint(0, 9))
             for k in range(2):
                 if random.randint(0, 9) < 5:
@@ -751,15 +767,16 @@ def train_model_simple():
             X_add = X_add[:shape[0]]
             for j in range(len(X_add)):
                 X_add[j][0] = j / len(X_add)
-            X_full[i] = copy.deepcopy(X_add)
-        for i in range(101):
+            X_full[-1] = copy.deepcopy(X_add)
+        for i in range(samples_selected + 1):
             X_full.append(copy.deepcopy(X_full[i]))
+            threshold = random.uniform(0, 1)
             for j in range(len(X_full[0])):
                 index = round(X_full[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
-                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < 0.1:
+                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < threshold:
                         X_full[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
-        Y = [[1]] * 101 + [[0]] * 101
+        Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X_full = np.array(X_full, dtype='float32')
         Y = np.array(Y, dtype='float32')
 

@@ -125,6 +125,22 @@ class AdaBelief:
 
         return result
 
+class ScaledDotProductAttention:
+    def __init__(self):
+        pass
+
+    def forward(self, query, key, value, mask=None):
+        matmul_qk = tf.linalg.matmul(query, key, transpose_b=True)
+        dk = tf.cast(tf.shape(key)[-1], dtype='float32')
+        scaled_attention_logits = matmul_qk / tf.math.sqrt(dk)
+
+        if mask is not None:
+            scaled_attention_logits += (mask * -1e9) 
+
+        attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1)
+        output = tf.linalg.matmul(attention_weights, value)
+        return output, attention_weights
+
 class FeedForwardLayer:
     def __init__(self, input_size, hidden_size, output_size, index, learning_rate=0.001, dropout=0):
         def xavier_initialization(shape):
@@ -136,6 +152,7 @@ class FeedForwardLayer:
         self.index = index
         self.learning_rate = learning_rate
         self.dropout = dropout
+        self.attention_layer = ScaledDotProductAttention()
         self.optimizer = AdamOptimizer(learning_rate=learning_rate, epsilon=1e-7)
         #self.optimizer = SGD(learning_rate=learning_rate)
         #self.optimizer = AdaBelief(learning_rate=learning_rate, epsilon=1e-16)
@@ -146,10 +163,14 @@ class FeedForwardLayer:
             'b2': self.b2,
         })
 
-    def forward(self, X, output=0):
+    def forward(self, X, output=0, attention=0):
         self.Z1 = tf.linalg.matmul(X, self.W1) + self.b1
         self.A1 = tf.nn.relu(self.Z1)
-        self.Z2 = tf.linalg.matmul(self.A1, self.W2) + self.b2
+        if attention:
+            attention_output, _ = self.attention_layer.forward(self.A1, self.A1, self.A1)
+            self.Z2 = tf.linalg.matmul(attention_output, self.W2) + self.b2
+        else:
+            self.Z2 = tf.linalg.matmul(self.A1, self.W2) + self.b2
         #self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
         #self.learning_rate = max(self.learning_rate, 0.00001)
         dropout_mask = tf.cast(tf.random.uniform(self.Z2.shape) >= self.dropout, dtype='float32')
@@ -224,27 +245,43 @@ class SmartSelectionLayer:
     def __init__(self, input_shape, hidden_size, output_size, index, learning_rate=0.001, total_input=10):
         self.index = index
         self.total_input = total_input
+        self.attention = ScaledDotProductAttention()
         self.dense_input = []
         for i in range(self.total_input):
             self.dense_input.append(FeedForwardLayer(input_size=input_shape[1], hidden_size=hidden_size, output_size=hidden_size, index='ssoriginp' + str(index) + str(i), learning_rate=learning_rate))
         self.dense_combinator = FeedForwardLayer(input_size=self.total_input * hidden_size, hidden_size=self.total_input * hidden_size, output_size=output_size, index='sscomb' + str(index), learning_rate=learning_rate)
         #self.chaos_0 = np.random.rand(2, 2)
-        self.chaos_0 = np.array([[10, 9], [1, 1]], dtype='float32')
-        self.mat = np.array([[1, 0], [0, 1]], dtype='float32')
-        self.chaos = []
+        self.chaos_10_9 = np.array([[10, 9], [1, 1]], dtype='float32')
+        self.chaos_2_1 = np.array([[9, 8], [1, 1]], dtype='float32')
+        self.mat_1 = np.array([[1, 0], [0, 1]], dtype='float32')
+        self.chaos_1 = []
+        self.mat_2 = np.array([[1, 0], [0, 1]], dtype='float32')
+        self.chaos_2 = []
         for i in range(self.total_input):
-            self.chaos.append(tf.convert_to_tensor(copy.deepcopy(self.mat), dtype='float32'))
+            self.chaos_1.append(tf.convert_to_tensor(copy.deepcopy(self.mat_1), dtype='float32'))
             #self.chaos.append(tf.random.uniform((2, 2)))
-            self.mat = np.dot(self.mat, self.chaos_0)
-        print(self.mat)
+            self.mat_1 = np.dot(self.mat_1, self.chaos_10_9)
+            self.chaos_2.append(tf.convert_to_tensor(copy.deepcopy(self.mat_2), dtype='float32'))
+            self.mat_2 = np.dot(self.mat_2, self.chaos_2_1)
+        print(self.mat_1, self.mat_2)
 
-    def forward(self, X_original):
+    def forward(self, X_original, double_matrix=0):
+        X_1 = []
+        X_2 = []
         X = []
         for i in range(self.total_input):
-            X.append(copy.deepcopy(X_original))
-            for j in range(len(X[i])):
-                X[i][j] = tf.transpose(tf.linalg.matmul(self.chaos[i], X[i][j].T)) % 1
-            X[i] = tf.squeeze(X[i][:, :, 1:])
+            X_1.append(copy.deepcopy(X_original))
+            for j in range(len(X_1[i])):
+                X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
+            X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
+            if double_matrix:
+                X_2.append(copy.deepcopy(X_original))
+                for j in range(len(X_2[i])):
+                    X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
+                X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
+                X.append((X_1[i] + X_2[i]) % 1)
+            else:
+                X.append(X_1[i])
         Y_pred = []
         self.A2 = []
         for i in range(self.total_input):
@@ -256,13 +293,23 @@ class SmartSelectionLayer:
         Y_pred_final = self.dense_combinator.forward(Y_pred_to_combinator)
         return Y_pred_final
     
-    def backward(self, X_original, A2, dA2):
+    def backward(self, X_original, A2, dA2, double_matrix=0):
+        X_1 = []
+        X_2 = []
         X = []
         for i in range(self.total_input):
-            X.append(copy.deepcopy(X_original))
-            for j in range(len(X[i])):
-                X[i][j] = tf.transpose(tf.linalg.matmul(self.chaos[i], X[i][j].T)) % 1
-            X[i] = tf.squeeze(X[i][:, :, 1:])
+            X_1.append(copy.deepcopy(X_original))
+            for j in range(len(X_1[i])):
+                X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
+            X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
+            if double_matrix:
+                X_2.append(copy.deepcopy(X_original))
+                for j in range(len(X_2[i])):
+                    X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
+                X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
+                X.append((X_1[i] + X_2[i]) % 1)
+            else:
+                X.append(X_1[i])
         self.A1 = self.dense_input[0].A1
         for i in range(1, self.total_input):
             self.A1 = tf.concat((self.A1, self.dense_input[i].A1), axis=1)
@@ -504,6 +551,7 @@ x_len = 1100
 def train_model():
     #the best result so far is total_input = 11, A = [[10, 9], [1, 1]], input_size = hidden_size
     #bad with two smart selection layers
+    #bad with middle <<input-middle->combinator>> layers
     if 0:
         X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
         Y_full = np.load('/home/user/Desktop/datasets/checker_train_y.npy')[:200]
@@ -514,9 +562,44 @@ def train_model():
     else:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
+        shape = X[0].shape
         print('now')
         #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
+        X = [X[0]]
+        for i in range(100):
+            X.append(copy.deepcopy(X[0]))
+            change_from = str(i // 10)
+            change_to = str(random.randint(0, 9))
+            for k in range(2):
+                if random.randint(0, 9) < 5:
+                    change_to += str(random.randint(0, 9))
+            X_add = []
+            for j in range(len(X[-1])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] == change_from:
+                        for k in range(len(change_to)):
+                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    else:
+                        X_add.append(X[-1][j])
+                else:
+                    X_add.append(X[-1][j])
+            X_add = X_add[:shape[0]]
+            for j in range(len(X_add)):
+                X_add[j][0] = j / len(X_add)
+            X[i] = copy.deepcopy(X_add)
+        for i in range(101):
+            X.append(copy.deepcopy(X[i]))
+            for j in range(len(X[0])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < 0.1:
+                        X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
+        Y = [[1]] * 101 + [[0]] * 101
+        X = np.array(X, dtype='float32')
+        Y = np.array(Y, dtype='float32')
+
     print(X.shape)
     '''for i in range(len(X)):
         res = ''
@@ -560,14 +643,14 @@ def train_model():
         loss_graph_y.append(loss)
         return (loss, accuracy)
 
-    for epoch in range(1,401):
+    for epoch in range(1,501):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.05 or accuracy > 0.98:
+        if loss < 0.15 or accuracy > 0.98:
             break
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
 
-content = {"question": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "answer": "Natalia sold 48/2 = <<48/2=24>>24 clips in May.\nNatalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.\n#### 72"}
+content = {"question": "Natalia sold clips to 43 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "answer": "Natalia sold 5656/2 = <<5656/2=256>>256 clips in May.\nNatalia sold 5656+256 = <<5656+256=72>>72 clips altogether in April and May.\n#### 72"}
 content = content['question'] + content['answer']
 content = list(content)
 for i in range(len(content)):
@@ -575,6 +658,7 @@ for i in range(len(content)):
         if random.uniform(0,1) < 0:
             content[i] = str(random.randint(0,9))
 content = ''.join(content)
+print(content)
 
 def use_model():
     #X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
@@ -631,9 +715,54 @@ def train_model_simple():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
+    if 0:
+        X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
+        Y_full = np.load('/home/user/Desktop/datasets/checker_train_y.npy')[:200]
+        Y = []
+        for i in range(len(Y_full)):
+            Y.append([Y_full[i][1]])
+        Y = np.array(Y, dtype='float32')
     else:
         samples_selected = 100
         X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
+        shape = X_full[0].shape
+        print('now')
+        #print(X)
+        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
+        X_full = [X_full[0]]
+        for i in range(100):
+            X_full.append(copy.deepcopy(X_full[0]))
+            change_from = str(i // 10)
+            change_to = str(random.randint(0, 9))
+            for k in range(2):
+                if random.randint(0, 9) < 5:
+                    change_to += str(random.randint(0, 9))
+            X_add = []
+            for j in range(len(X_full[-1])):
+                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] == change_from:
+                        for k in range(len(change_to)):
+                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    else:
+                        X_add.append(X_full[-1][j])
+                else:
+                    X_add.append(X_full[-1][j])
+            X_add = X_add[:shape[0]]
+            for j in range(len(X_add)):
+                X_add[j][0] = j / len(X_add)
+            X_full[i] = copy.deepcopy(X_add)
+        for i in range(101):
+            X_full.append(copy.deepcopy(X_full[i]))
+            for j in range(len(X_full[0])):
+                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < 0.1:
+                        X_full[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
+        Y = [[1]] * 101 + [[0]] * 101
+        X_full = np.array(X_full, dtype='float32')
+        Y = np.array(Y, dtype='float32')
+
         X = []
         for i in X_full:
             x = []
@@ -643,7 +772,7 @@ def train_model_simple():
         X = np.array(X, dtype='float32')
         print('now')
         #print(X)
-        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
+        #Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
     hidden_size = 100
     learning_rate = 0.001
     dense_input = FeedForwardLayer(X.shape[1], hidden_size, hidden_size, 0, learning_rate=learning_rate)
@@ -752,10 +881,10 @@ def use_model_simple():
     Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
     print(Y_pred_final)
 
-if 1:
+if 0:
     train_model()
     #train_model_simple()
-elif 0:
+elif 1:
     use_model()
     use_model_simple()
 #train_model_keras()

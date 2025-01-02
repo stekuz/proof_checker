@@ -384,8 +384,55 @@ def train_model_keras():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 400
-        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        samples_selected = 200
+        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
+        shape = X_full[0].shape
+        print('now')
+        #print(X_full)
+        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
+        X_full = [X_full[0]]
+        to_change = []
+        for i in range(len(X_full[0])):
+            index = round(X_full[0][i][1] * (len(alphabet) + 1))
+            if index < len(alphabet):
+                if alphabet[index] in '0123456789':
+                    to_change.append(alphabet[index])
+        to_change = list(set(to_change))
+        for i in range(samples_selected):
+            X_full.append(copy.deepcopy(X_full[0]))
+            change_from = to_change[random.randint(0, len(to_change) - 1)]
+            change_to = str(random.randint(0, 9))
+            for k in range(2):
+                if random.randint(0, 9) < 5:
+                    change_to += str(random.randint(0, 9))
+            X_add = []
+            for j in range(len(X_full[-1])):
+                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] == change_from:
+                        for k in range(len(change_to)):
+                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    else:
+                        X_add.append(X_full[-1][j])
+                else:
+                    X_add.append(X_full[-1][j])
+            X_add = X_add[:shape[0]]
+            for j in range(len(X_add)):
+                X_add[j][0] = j / len(X_add)
+            X_full[-1] = copy.deepcopy(X_add)
+        for i in range(samples_selected + 1):
+            X_full.append(copy.deepcopy(X_full[i]))
+            threshold = random.uniform(0, 1)
+            for j in range(len(X_full[0])):
+                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] in '0123456789' and random.uniform(0, 1) < threshold:
+                        X_full[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
+        Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
+        X_full = np.array(X_full, dtype='float32')
+        for i in range(len(Y)):
+            Y[i] = [1 - Y[i][0], Y[i][0]]
+        Y = np.array(Y, dtype='float32')
         X = []
         for i in X_full:
             x = []
@@ -394,16 +441,16 @@ def train_model_keras():
             X.append(x)
         X = np.array(X, dtype='float32')
         print('now')
-        #print(X)
+        print(X.shape, X)
 
     input_shape = (X.shape[1], 1, )
     inputs = keras.Input(shape=input_shape)
-    lstm1 = layers.LSTM(32, activation='relu', return_sequences=True)(inputs)
-    conv1 = layers.Conv1D(32, (3), activation='relu')(lstm1)
+    lstm1 = layers.LSTM(100, activation='relu', return_sequences=True)(inputs)
+    conv1 = layers.Conv1D(100, (3), activation='relu')(lstm1)
     avgpool1 = layers.AveragePooling1D(100)(conv1)
     flatten1 = layers.Flatten()(avgpool1)
     #dense1 = layers.Dense(32, activation='relu')(flatten1)
-    dense2 = layers.Dense(32, activation='relu')(flatten1)
+    dense2 = layers.Dense(100, activation='relu')(flatten1)
     dense3 = layers.Dense(100, activation='relu')(dense2)
     flatten2 = layers.Flatten()(dense3)
     #layers.LSTM(200, activation='relu', return_sequences=False),
@@ -411,7 +458,7 @@ def train_model_keras():
     outputs = layers.Dense(2, activation='softmax')(dropout)
     #model = keras.models.load_model('./models_trained/checker_keras.ckpt.keras')
     model = keras.models.Model(inputs=inputs, outputs=outputs)
-    batch_size = 64
+    batch_size = 16
     epochs = 300
     optimizer = keras.optimizers.Adam(learning_rate=0.0001, epsilon=1e-8)
     #optimizer = keras.optimizers.SGD(learning_rate=0.1)
@@ -609,16 +656,16 @@ def train_model():
         Y = np.array(Y, dtype='float32')
 
     print(X.shape)
-    for i in range(len(X)):
+    '''for i in range(len(X)):
         res = ''
         for j in range(len(X[i])):
             index = round(X[i][j][1] * (len(alphabet) + 1))
             if index < len(alphabet):
                 res += alphabet[index]
-        print(res, Y[i])
+        print(res, Y[i])'''
     learning_rate = 0.001
     hidden_size = 100
-    total_input = 7
+    total_input = 11
     smartselection1 = SmartSelectionLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
@@ -658,8 +705,8 @@ def train_model():
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
 
-content = {"question": "Natalia sold clips to 79 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
-           "answer": "Natalia sold 79/2 = <<79/2=24>>24 clips in May.\nNatalia sold 79+24 = <<79+24=72>>72 clips altogether in April and May.\n#### 72"}
+content = {"question": "Natalia sold clips to 43 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+           "answer": "Natalia sold 43/4 = <<43/4=24>>24 clips in May.\nNatalia sold 43+24 = <<43+24=85>>33 clips altogether in April and May.\n#### 85"}
 content = content['question'] + content['answer']
 content = list(content)
 for i in range(len(content)):
@@ -680,7 +727,7 @@ def use_model():
     input_shape = X_full.shape
     print(input_shape)
     learning_rate = 0.01
-    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=7)
+    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=11)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)

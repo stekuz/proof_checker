@@ -205,12 +205,20 @@ class FeedForwardLayer:
         np.save(filepath + 'dense' + str(self.index) + 'b1.npy', self.b1)
         np.save(filepath + 'dense' + str(self.index) + 'W2.npy', self.W2)
         np.save(filepath + 'dense' + str(self.index) + 'b2.npy', self.b2)
+        np.save(filepath + 'dense' + str(self.index) + 'adam.npy', np.array([self.optimizer.t], dtype='int32'))
     
     def load_model(self, filepath):
         self.W1 = np.load(filepath + 'dense' + str(self.index) + 'W1.npy')
         self.b1 = np.load(filepath + 'dense' + str(self.index) + 'b1.npy')
         self.W2 = np.load(filepath + 'dense' + str(self.index) + 'W2.npy')  
         self.b2 = np.load(filepath + 'dense' + str(self.index) + 'b2.npy')
+        self.optimizer.initialize({
+            'W1': self.W1,
+            'b1': self.b1,
+            'W2': self.W2,
+            'b2': self.b2,
+        })
+        self.optimizer.t = np.load(filepath + 'dense' + str(self.index) + 'adam.npy')[0]
 
 class SmartSelectionLayer:
     def __init__(self, input_shape, hidden_size, output_size, index, learning_rate=0.001, total_input=10):
@@ -220,12 +228,15 @@ class SmartSelectionLayer:
         for i in range(self.total_input):
             self.dense_input.append(FeedForwardLayer(input_size=input_shape[1], hidden_size=hidden_size, output_size=hidden_size, index='ssoriginp' + str(index) + str(i), learning_rate=learning_rate))
         self.dense_combinator = FeedForwardLayer(input_size=self.total_input * hidden_size, hidden_size=self.total_input * hidden_size, output_size=output_size, index='sscomb' + str(index), learning_rate=learning_rate)
-        self.chaos_0 = np.array([[10, 9], [1, 1]], dtype='uint64')
-        self.mat = np.array([[1, 0], [0, 1]], dtype='uint64')
+        #self.chaos_0 = np.random.rand(2, 2)
+        self.chaos_0 = np.array([[10, 9], [1, 1]], dtype='float32')
+        self.mat = np.array([[1, 0], [0, 1]], dtype='float32')
         self.chaos = []
         for i in range(self.total_input):
             self.chaos.append(tf.convert_to_tensor(copy.deepcopy(self.mat), dtype='float32'))
+            #self.chaos.append(tf.random.uniform((2, 2)))
             self.mat = np.dot(self.mat, self.chaos_0)
+        print(self.mat)
 
     def forward(self, X_original):
         X = []
@@ -245,7 +256,7 @@ class SmartSelectionLayer:
         Y_pred_final = self.dense_combinator.forward(Y_pred_to_combinator)
         return Y_pred_final
     
-    def backward(self, X_original, Y_pred, Y_true):
+    def backward(self, X_original, A2, dA2):
         X = []
         for i in range(self.total_input):
             X.append(copy.deepcopy(X_original))
@@ -255,10 +266,13 @@ class SmartSelectionLayer:
         self.A1 = self.dense_input[0].A1
         for i in range(1, self.total_input):
             self.A1 = tf.concat((self.A1, self.dense_input[i].A1), axis=1)
-        dA2_final = self.dense_combinator.backward(self.A1, Y_pred, Y_pred - Y_true)
+        dA2_final = self.dense_combinator.backward(self.A1, A2, dA2)
 
-        for i in range(self.total_input):
-            self.dense_input[i].backward(X[i], self.A2[i], dA2_final[:, i * self.dense_input[i].W1.shape[1]:(i + 1) * self.dense_input[i].W1.shape[1]])
+        dA2 = self.dense_input[0].backward(X[0], self.A2[0], dA2_final[:, i * self.dense_input[0].W1.shape[1]:(i + 1) * self.dense_input[0].W1.shape[1]])
+        for i in range(1, self.total_input):
+            dA2 += self.dense_input[i].backward(X[i], self.A2[i], dA2_final[:, i * self.dense_input[i].W1.shape[1]:(i + 1) * self.dense_input[i].W1.shape[1]])
+        dA2 = tf.convert_to_tensor(dA2, dtype='float32')
+        return dA2
     
     def save_model(self, filepath):
         for i in range(self.total_input):
@@ -308,6 +322,33 @@ def train_model_keras():
         X[i] = np.dot(chaos, X[i].T).T
     X = np.reshape(X, (X.shape[0], 2 * X.shape[1], 1))
     Y = np.load('/home/user/Desktop/datasets/checker_train_y.npy')
+    if 0:
+        X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
+        X = []
+        for i in X_full:
+            x = []
+            for j in i:
+                x.append(j[1])
+            X.append(x)
+        X = np.array(X, dtype='float32')
+        Y_full = np.load('/home/user/Desktop/datasets/checker_train_y.npy')[:200]
+        Y = []
+        for i in range(len(Y_full)):
+            Y.append([Y_full[i][1]])
+        Y = np.array(Y, dtype='float32')
+    else:
+        samples_selected = 400
+        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        X = []
+        for i in X_full:
+            x = []
+            for j in i:
+                x.append(j[1])
+            X.append(x)
+        X = np.array(X, dtype='float32')
+        print('now')
+        #print(X)
+
     input_shape = (X.shape[1], 1, )
     inputs = keras.Input(shape=input_shape)
     lstm1 = layers.LSTM(32, activation='relu', return_sequences=True)(inputs)
@@ -326,7 +367,7 @@ def train_model_keras():
     batch_size = 64
     epochs = 300
     optimizer = keras.optimizers.Adam(learning_rate=0.0001, epsilon=1e-8)
-    optimizer = keras.optimizers.SGD(learning_rate=0.1)
+    #optimizer = keras.optimizers.SGD(learning_rate=0.1)
     model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
     def preprocessing():
@@ -412,7 +453,7 @@ def preprocess_gsm8k():
     X = []
     print(np.random.normal())
     mid = 0
-    for sample in data_train:
+    for sample in data_train[:100]:
         X.append([])
         mid += 1
         print('first', mid)
@@ -420,6 +461,19 @@ def preprocess_gsm8k():
             X[-1].append([1, alphabet.find(sample['question'][i]) / (len(alphabet) + 1)])
         for i in range(len(sample['answer'])):
             X[-1].append([1, alphabet.find(sample['answer'][i]) / (len(alphabet) + 1)])
+        X_add = []
+        for k in range(10):
+            change_from = str(random.randint(0,9))
+            change_to = str(random.randint(0,9))
+            X_add.append([])
+            for i in range(len(X[-1])):
+                index = round(X[-1][i][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    if alphabet[index] == change_from:
+                        X_add[k].append([1, alphabet.find(change_to) / (len(alphabet) + 1)])
+                    else:
+                        X_add[k].append(X[-1][i])
+        X += copy.deepcopy(X_add)
     mxlen = 0
     for i in X:
         mxlen = max(mxlen, len(i))
@@ -429,24 +483,27 @@ def preprocess_gsm8k():
             X[j].append([1, len(alphabet) / (len(alphabet) + 1)])
         for i in range(mxlen):
             X[j][i][0] = i / mxlen
-    for i in range(len(data_train)):
+    x_len = len(X)
+    for i in range(x_len):
         print('last', i)
         X.append(copy.deepcopy(X[i]))
         for j in range(mxlen):
             index = round(X[-1][j][1] * (len(alphabet) + 1))
             if index < len(alphabet):
-                if alphabet[index] in '0123456789':
+                if alphabet[index] in '0123456789' and random.uniform(0, 1) < 0.1:
                     X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
     X = np.array(X, dtype='float32')
     np.save('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy', X)
-    Y = [[1]] * len(data_train) + [[0]] * len(data_train)
+    Y = [[1]] * x_len + [[0]] * x_len
     Y = np.array(Y, dtype='float32')
     np.save('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy', Y)
 
 #preprocess_gsm8k()
+x_len = 1100
 
 def train_model():
-    #the best result so far is total_input = 7, A = [[10, 9], [1, 1]], input_size = hidden_size
+    #the best result so far is total_input = 11, A = [[10, 9], [1, 1]], input_size = hidden_size
+    #bad with two smart selection layers
     if 0:
         X = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
         Y_full = np.load('/home/user/Desktop/datasets/checker_train_y.npy')[:200]
@@ -456,48 +513,68 @@ def train_model():
         Y = np.array(Y, dtype='float32')
     else:
         samples_selected = 100
-        X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         print('now')
         #print(X)
-        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
     print(X.shape)
+    '''for i in range(len(X)):
+        res = ''
+        for j in range(len(X[i])):
+            index = round(X[i][j][1] * (len(alphabet) + 1))
+            if index < len(alphabet):
+                res += alphabet[index]
+        print(res, Y[i])'''
     learning_rate = 0.001
     hidden_size = 100
-    smartselection1 = SmartSelectionLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=7)
+    total_input = 11
+    smartselection1 = SmartSelectionLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
+
+    loss_graph_x = []
+    loss_graph_y = []
     def trainint_loop(epoch):
         start_time = time.time()
-        Y_pred_ss = smartselection1.forward(X)
-        #print(Y_pred_ss)
-        Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
+        Y_pred_ss1 = smartselection1.forward(X)
+        Y_pred_middle1 = dense_middle1.forward(Y_pred_ss1)
         Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
         Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
         Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
-        #print(Y_pred_final)
         loss = dense_output.compute_loss(Y_pred_final, Y)
         accuracy = dense_output.compute_accuracy(Y_pred_final, Y)
         dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, output=1)
         dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2)
         dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2)
-        dA2 = dense_middle1.backward(Y_pred_ss, Y_pred_middle1, dA2)
-        smartselection1.backward(X, Y_pred_ss, dA2)
+        dA2 = dense_middle1.backward(Y_pred_ss1, Y_pred_middle1, dA2)
+        dA2 = smartselection1.backward(X, Y_pred_ss1, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
         smartselection1.save_model('./custom_models/test_model')
         dense_middle1.save_model('./custom_models/test_model')
         dense_middle2.save_model('./custom_models/test_model')
         dense_middle3.save_model('./custom_models/test_model')
         dense_output.save_model('./custom_models/test_model')
+        loss_graph_x.append(epoch)
+        loss_graph_y.append(loss)
         return (loss, accuracy)
 
     for epoch in range(1,401):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.01 or accuracy > 0.95:
+        if loss < 0.05 or accuracy > 0.98:
             break
+    plt.plot(loss_graph_x, loss_graph_y)
+    plt.show()
 
-content = 'Joy can read 8 pages of a book in 20 minutes. How many hours will it take her to read 431 pages?In one hour, there are 3 sets of 20 minutes.\nSo, Joy can read 8 x 3 = <<8*3=24>>24 pages in an hour.\nIt will take her 120/24 = <<120/24=5>>5 hours to read 120 pages.\n#### 5'
+content = {"question": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?", "answer": "Natalia sold 48/2 = <<48/2=24>>24 clips in May.\nNatalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.\n#### 72"}
+content = content['question'] + content['answer']
+content = list(content)
+for i in range(len(content)):
+    if content[i] in '0123456789':
+        if random.uniform(0,1) < 0:
+            content[i] = str(random.randint(0,9))
+content = ''.join(content)
 
 def use_model():
     #X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
@@ -510,7 +587,7 @@ def use_model():
     input_shape = X_full.shape
     print(input_shape)
     learning_rate = 0.01
-    smartselection1 = SmartSelectionLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=7)
+    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=11)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
@@ -556,7 +633,7 @@ def train_model_simple():
         Y = np.array(Y, dtype='float32')
     else:
         samples_selected = 100
-        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         X = []
         for i in X_full:
             x = []
@@ -566,14 +643,18 @@ def train_model_simple():
         X = np.array(X, dtype='float32')
         print('now')
         #print(X)
-        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+        Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
     hidden_size = 100
     learning_rate = 0.001
     dense_input = FeedForwardLayer(X.shape[1], hidden_size, hidden_size, 0, learning_rate=learning_rate)
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
-    dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
+    dense_middle4 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 4, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 5, learning_rate=learning_rate, dropout=0)
+
+    loss_graph_x = []
+    loss_graph_y = []
     def trainint_loop(epoch):
         start_time = time.time()
         Y_pred_input = dense_input.forward(X)
@@ -581,11 +662,13 @@ def train_model_simple():
         Y_pred_middle1 = dense_middle1.forward(Y_pred_input)
         Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
         Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
-        Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+        Y_pred_middle4 = dense_middle4.forward(Y_pred_middle3)
+        Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
         #print(Y_pred_final)
         loss = dense_output.compute_loss(Y_pred_final, Y)
         accuracy = dense_output.compute_accuracy(Y_pred_final, Y)
-        dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, output=1)
+        dA2 = dense_output.backward(Y_pred_middle4, Y_pred_final, Y_pred_final - Y, output=1)
+        dA2 = dense_middle4.backward(Y_pred_middle3, Y_pred_middle4, dA2)
         dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2)
         dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2)
         dA2 = dense_middle1.backward(Y_pred_input, Y_pred_middle1, dA2)
@@ -595,13 +678,18 @@ def train_model_simple():
         dense_middle1.save_model('./custom_models/test_model_simple')
         dense_middle2.save_model('./custom_models/test_model_simple')
         dense_middle3.save_model('./custom_models/test_model_simple')
+        dense_middle4.save_model('./custom_models/test_model_simple')
         dense_output.save_model('./custom_models/test_model_simple')
+        loss_graph_x.append(epoch)
+        loss_graph_y.append(loss)
         return (loss, accuracy)
 
-    for epoch in range(1,401):
+    for epoch in range(1,501):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.01 or accuracy > 0.95:
+        if loss < 0.05 or accuracy > 0.95:
             break
+    plt.plot(loss_graph_x, loss_graph_y)
+    plt.show()
 
 def use_model_simple():
     if 0:
@@ -638,11 +726,13 @@ def use_model_simple():
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
-    dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
+    dense_middle4 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 4, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 5, learning_rate=learning_rate, dropout=0)
     dense_input.load_model('./custom_models/test_model_simple')
     dense_middle1.load_model('./custom_models/test_model_simple')
     dense_middle2.load_model('./custom_models/test_model_simple')
     dense_middle3.load_model('./custom_models/test_model_simple')
+    dense_middle4.load_model('./custom_models/test_model_simple')
     dense_output.load_model('./custom_models/test_model_simple')
 
 
@@ -658,13 +748,14 @@ def use_model_simple():
     Y_pred_middle1 = dense_middle1.forward(Y_pred_input)
     Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
     Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
-    Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+    Y_pred_middle4 = dense_middle3.forward(Y_pred_middle3)
+    Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
     print(Y_pred_final)
 
 if 1:
     train_model()
     #train_model_simple()
-if 0:
+elif 0:
     use_model()
     use_model_simple()
 #train_model_keras()

@@ -22,12 +22,22 @@ os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 #        gpus[0],
 #        [tf.config.LogicalDeviceConfiguration(memory_limit=3000)])
 
-data = json.load(open('/home/user/Desktop/proofs_dataset/number_theory.json', 'r'))
+'''data = json.load(open('/home/user/Desktop/proofs_dataset/number_theory.json', 'r'))
 data_train = []
 with open('/home/user/Desktop/datasets/gsm8k_train.jsonl', 'r') as f:
     for line in f:
         data_train.append(json.loads(line))
-all_tokens = {}
+all_tokens = {}'''
+
+data_raw = open('/home/user/Desktop/datasets/logiqa_train.txt', 'r').readlines()
+data_X = []
+data_Y = []
+alphabet = ''
+
+for i in data_raw:
+    alphabet += i
+alphabet = ''.join(sorted(list(set(alphabet))))
+
 
 def all_tokens_nt():
     for theorem in data['theorems']:
@@ -47,12 +57,12 @@ def all_tokens_gsm8k():
         for char in sample['answer']:
             all_tokens[char] = 1
 
-all_tokens_gsm8k()
+#all_tokens_gsm8k()
 #all_tokens_nt()
 
-alphabet = ''
+'''alphabet = ''
 for token in all_tokens:
-    alphabet += token
+    alphabet += token'''
 
 class AdamOptimizer:
     def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
@@ -241,7 +251,7 @@ class FeedForwardLayer:
         })
         self.optimizer.t = np.load(filepath + 'dense' + str(self.index) + 'adam.npy')[0]
 
-class SmartSelectionLayer:
+class ChaosTransformLayer:
     def __init__(self, input_shape, hidden_size, output_size, index, learning_rate=0.001, total_input=10):
         self.index = index
         self.total_input = total_input
@@ -356,7 +366,7 @@ def keras_example_model_xor():
 
     model.fit(X, Y, batch_size=1, epochs=10)
 
-def train_model_keras():
+def train_model_symbols_keras():
     X_full = np.load('/home/user/Desktop/datasets/checker_train_x_flatten.npy') / (len(alphabet) + 1)
     def preprocess_chaos():
         X = []
@@ -528,7 +538,7 @@ def train_model_keras():
     cp_callback = keras.callbacks.ModelCheckpoint(filepath='./models_trained/checker_keras_2.ckpt.keras')
     model.fit(X, Y, batch_size=batch_size, epochs=epochs, validation_split=0.1, callbacks=[cp_callback])
 
-def use_model_keras():
+def use_model_symbols_keras():
     model = keras.models.load_model('./models_trained/checker_keras_2.ckpt.keras')
     input_shape = (20, 2000, )
     X = []
@@ -623,7 +633,7 @@ def pseudo_random_pairing(n, k):
 
 #pseudo_random_pairing(1064, 1064)
 
-def train_model():
+def train_model_symbols():
     #the best result so far is total_input = 11, A = [[10, 9], [1, 1]], input_size = hidden_size
     #bad with two smart selection layers
     #bad with middle <<input-middle->combinator>> layers
@@ -634,7 +644,7 @@ def train_model():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    else:
+    elif 1:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
@@ -697,6 +707,10 @@ def train_model():
         Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
+    elif 1:
+        samples_selected = 2000
+        X = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')[:samples_selected]
+        Y = np.load('/home/user/Desktop/datasets/logiqa_chaos_y.npy')[:samples_selected]
     '''X = X.tolist()
     mxlen = len(X[0])
     random_pairs = np.load('./custom_models_2/pseudo_random_pairing.npy')
@@ -716,19 +730,19 @@ def train_model():
         print(res, Y[i])'''
     learning_rate = 0.001
     hidden_size = 100
-    total_input = 11
-    smartselection1 = SmartSelectionLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
+    total_input = 13
+    chaostranform1 = ChaosTransformLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
-    filepath = './custom_models/test_model'
+    filepath = './custom_models_2/test_model'
     loss_graph_x = []
     loss_graph_y = []
     def trainint_loop(epoch):
         start_time = time.time()
-        Y_pred_ss1 = smartselection1.forward(X, double_matrix=0)
-        Y_pred_middle1 = dense_middle1.forward(Y_pred_ss1)
+        Y_pred_chaos = chaostranform1.forward(X, double_matrix=0)
+        Y_pred_middle1 = dense_middle1.forward(Y_pred_chaos)
         Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
         Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
         Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
@@ -737,10 +751,10 @@ def train_model():
         dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, output=1)
         dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2)
         dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2)
-        dA2 = dense_middle1.backward(Y_pred_ss1, Y_pred_middle1, dA2)
-        dA2 = smartselection1.backward(X, Y_pred_ss1, dA2)
+        dA2 = dense_middle1.backward(Y_pred_chaos, Y_pred_middle1, dA2)
+        dA2 = chaostranform1.backward(X, Y_pred_chaos, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        smartselection1.save_model(filepath)
+        chaostranform1.save_model(filepath)
         dense_middle1.save_model(filepath)
         dense_middle2.save_model(filepath)
         dense_middle3.save_model(filepath)
@@ -766,11 +780,14 @@ for i in range(len(content)):
         if random.uniform(0,1) < 0:
             content[i] = str(random.randint(0,9))
 content = ''.join(content)
-print(content)
+content = 'Continuous exposure to indoor fluorescent lights is beneficial to the health of hamsters with heart disease.One group of hamsters exposed to continuous exposure to fluorescent lights has an average lifespan that is 2.5% longer than another one of the same species but living in a black wall.\nWhich of the following questions was the initial motivation for conducting the above experiment?\nA.Can hospital light therapy be proved to promote patient recovery?'
 
-def use_model():
+#print(content)
+
+def use_model_symbols():
     #X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
-    X_full = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')
+    #X_full = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')
+    X_full = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')
     Y = np.load('/home/user/Desktop/datasets/checker_train_y.npy')
     for i in range(len(Y)):
         if Y[i][1] == 0:
@@ -779,13 +796,13 @@ def use_model():
     input_shape = X_full.shape
     print(input_shape)
     learning_rate = 0.01
-    smartselection1 = SmartSelectionLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=11)
+    chaostranform1 = ChaosTransformLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=13)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    filepath = './custom_models/test_model'
-    smartselection1.load_model(filepath)
+    filepath = './custom_models_2/test_model'
+    chaostranform1.load_model(filepath)
     dense_middle1.load_model(filepath)
     dense_middle2.load_model(filepath)
     dense_middle3.load_model(filepath)
@@ -809,14 +826,14 @@ def use_model():
     
     X = np.array(X, dtype='float32')
     X = np.concatenate((X, X), axis=0)
-    Y_pred_ss = smartselection1.forward(X, double_matrix=0)
+    Y_pred_ss = chaostranform1.forward(X, double_matrix=0)
     Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
     Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
     Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
     Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
     print(Y_pred_final)
 
-def train_model_simple():
+def train_model_symbols_simple():
     if 0:
         X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
         X = []
@@ -838,7 +855,7 @@ def train_model_simple():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    else:
+    elif 0:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
@@ -912,6 +929,19 @@ def train_model_simple():
         print('now')
         #print(X)
         #Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
+    elif 1:
+        samples_selected = 2000
+        X = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')[:samples_selected]
+        Y = np.load('/home/user/Desktop/datasets/logiqa_chaos_y.npy')[:samples_selected]
+        X_full = copy.deepcopy(X)
+        X = []
+        for i in X_full:
+            x = []
+            for j in i:
+                x.append(j[1])
+            X.append(x)
+        X = np.array(X, dtype='float32')
+        print('now')
     hidden_size = 100
     learning_rate = 0.001
     dense_input = FeedForwardLayer(X.shape[1], hidden_size, hidden_size, 0, learning_rate=learning_rate)
@@ -959,7 +989,7 @@ def train_model_simple():
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
 
-def use_model_simple():
+def use_model_symbols_simple():
     if 0:
         X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')[:200]
         X = []
@@ -974,7 +1004,7 @@ def use_model_simple():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    else:
+    elif 0:
         samples_selected = 50
         X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
         X = []
@@ -987,6 +1017,9 @@ def use_model_simple():
         print('now')
         #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[len(data_train):len(data_train) + samples_selected]), axis=0)
+    elif 1:
+        #X_full = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')
+        X = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')
     hidden_size = 100
     learning_rate = 0.001
     input_shape = X.shape
@@ -1021,11 +1054,54 @@ def use_model_simple():
     Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
     print(Y_pred_final)
 
-if 0:
-    train_model()
-    #train_model_simple()
+if 1:
+    train_model_symbols()
+    #train_model_symbols_simple()
 elif 0:
-    use_model()
-    use_model_simple()
-#train_model_keras()
-#use_model_keras()
+    use_model_symbols()
+    use_model_symbols_simple()
+#train_model_symbols_keras()
+#use_model_symbols_keras()
+
+def preprocess_logiqa():
+    mxlen = 0
+    for i in range(0, len(data_raw), 8):
+        res = data_raw[i + 2] + data_raw[i + 3]
+        res_new = [res, res, res, res]
+        for j in range(4):
+            res_new[j] += data_raw[i + 4 + j]
+        Y_add = [[0], [0], [0], [0]]
+        if data_raw[i + 1][0] == 'a':
+            Y_add[0][0] = 1
+        if data_raw[i + 1][0] == 'b':
+            Y_add[1][0] = 1
+        if data_raw[i + 1][0] == 'c':
+            Y_add[2][0] = 1
+        if data_raw[i + 1][0] == 'd':
+            Y_add[3][0] = 1
+        for j in range(4):
+            mxlen = max(mxlen, len(res_new[j]) + 100)
+            data_X.append([])
+            for k in range(len(res_new[j])):
+                data_X[-1].append([1, alphabet.find(res_new[j][k]) / (len(alphabet) + 1)])
+            data_Y.append(Y_add[j])
+
+    for i in range(len(data_X)):
+        item_len = len(data_X[i])
+        for j in range(mxlen - item_len):
+            data_X[i].append([1, len(alphabet) / (len(alphabet) + 1)])
+        for j in range(mxlen):
+            data_X[i][j][0] = j / mxlen
+    
+    
+
+    X = np.array(data_X, dtype='float32')
+    Y = np.array(data_Y, dtype='float32')
+
+    np.save('/home/user/Desktop/datasets/logiqa_chaos_x.npy', X)
+    np.save('/home/user/Desktop/datasets/logiqa_chaos_y.npy', Y)
+
+#preprocess_logiqa()
+
+
+

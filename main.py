@@ -252,7 +252,7 @@ class SmartSelectionLayer:
         self.dense_combinator = FeedForwardLayer(input_size=self.total_input * hidden_size, hidden_size=self.total_input * hidden_size, output_size=output_size, index='sscomb' + str(index), learning_rate=learning_rate)
         #self.chaos_0 = np.random.rand(2, 2)
         self.chaos_10_9 = np.array([[10, 9], [1, 1]], dtype='float32')
-        self.chaos_2_1 = np.array([[9, 8], [1, 1]], dtype='float32')
+        self.chaos_2_1 = np.array([[2, 1], [1, 1]], dtype='float32')
         self.mat_1 = np.array([[1, 0], [0, 1]], dtype='float32')
         self.chaos_1 = []
         self.mat_2 = np.array([[1, 0], [0, 1]], dtype='float32')
@@ -264,24 +264,28 @@ class SmartSelectionLayer:
             self.chaos_2.append(tf.convert_to_tensor(copy.deepcopy(self.mat_2), dtype='float32'))
             self.mat_2 = np.dot(self.mat_2, self.chaos_2_1)
         print(self.mat_1, self.mat_2)
+        self.X = None
 
     def forward(self, X_original, double_matrix=0):
-        X_1 = []
-        X_2 = []
-        X = []
-        for i in range(self.total_input):
-            X_1.append(copy.deepcopy(X_original))
-            for j in range(len(X_1[i])):
-                X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
-            X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
-            if double_matrix:
-                X_2.append(copy.deepcopy(X_original))
-                for j in range(len(X_2[i])):
-                    X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
-                X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
-                X.append((X_1[i] + X_2[i]) % 1)
-            else:
-                X.append(X_1[i])
+        if self.X == None:
+            X_1 = []
+            X_2 = []
+            X = []
+            for i in range(self.total_input):
+                X_1.append(copy.deepcopy(X_original))
+                for j in range(len(X_1[i])):
+                    X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
+                X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
+                if double_matrix:
+                    X_2.append(copy.deepcopy(X_original))
+                    for j in range(len(X_2[i])):
+                        X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
+                    X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
+                    X.append((X_1[i] + X_2[i]) % 1)
+                else:
+                    X.append(X_1[i])
+            self.X = X
+        X = self.X
         Y_pred = []
         self.A2 = []
         for i in range(self.total_input):
@@ -294,22 +298,25 @@ class SmartSelectionLayer:
         return Y_pred_final
     
     def backward(self, X_original, A2, dA2, double_matrix=0):
-        X_1 = []
-        X_2 = []
-        X = []
-        for i in range(self.total_input):
-            X_1.append(copy.deepcopy(X_original))
-            for j in range(len(X_1[i])):
-                X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
-            X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
-            if double_matrix:
-                X_2.append(copy.deepcopy(X_original))
-                for j in range(len(X_2[i])):
-                    X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
-                X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
-                X.append((X_1[i] + X_2[i]) % 1)
-            else:
-                X.append(X_1[i])
+        if self.X == None:
+            X_1 = []
+            X_2 = []
+            X = []
+            for i in range(self.total_input):
+                X_1.append(copy.deepcopy(X_original))
+                for j in range(len(X_1[i])):
+                    X_1[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_1[i], X_1[i][j].T)) % 1
+                X_1[i] = tf.squeeze(X_1[i][:, :, 1:])
+                if double_matrix:
+                    X_2.append(copy.deepcopy(X_original))
+                    for j in range(len(X_2[i])):
+                        X_2[i][j] = tf.transpose(tf.linalg.matmul(self.chaos_2[i], X_2[i][j].T)) % 1
+                    X_2[i] = tf.squeeze(X_2[i][:, :, 1:])
+                    X.append((X_1[i] + X_2[i]) % 1)
+                else:
+                    X.append(X_1[i])
+            self.X = X
+        X = self.X
         self.A1 = self.dense_input[0].A1
         for i in range(1, self.total_input):
             self.A1 = tf.concat((self.A1, self.dense_input[i].A1), axis=1)
@@ -384,55 +391,69 @@ def train_model_keras():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 200
-        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
-        shape = X_full[0].shape
+        samples_selected = 100
+        X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
+        shape = X[0].shape
+        content = 'Adam bougth 6 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*6=<<2*6=12>>$12 in total\n#### 12'
+        X = [[]]
+        for i in range(len(content)):
+            X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
+        for i in range(shape[0] - len(content)):
+            X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
+        for i in range(shape[0]):
+            X[0][i][0] = i / shape[0]
         print('now')
-        #print(X_full)
+        #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
-        X_full = [X_full[0]]
+        X = [X[0]]
         to_change = []
-        for i in range(len(X_full[0])):
-            index = round(X_full[0][i][1] * (len(alphabet) + 1))
+        for i in range(len(X[0])):
+            index = round(X[0][i][1] * (len(alphabet) + 1))
             if index < len(alphabet):
                 if alphabet[index] in '0123456789':
                     to_change.append(alphabet[index])
         to_change = list(set(to_change))
         for i in range(samples_selected):
-            X_full.append(copy.deepcopy(X_full[0]))
-            change_from = to_change[random.randint(0, len(to_change) - 1)]
-            change_to = str(random.randint(0, 9))
-            for k in range(2):
-                if random.randint(0, 9) < 5:
-                    change_to += str(random.randint(0, 9))
+            X.append(copy.deepcopy(X[0]))
+            change_num = random.randint(1, 10)
+            change_from = []
+            change_to = []
+            for k in range(change_num):
+                change_from.append(to_change[random.randint(0, len(to_change) - 1)])
+            change_from = list(set(change_from))
+            for k in range(change_num):
+                change_to.append(str(random.randint(0, 9)))
+                for k2 in range(1):
+                    if random.randint(0, 9) < 3:
+                        change_to[k] += str(random.randint(0, 9))
             X_add = []
-            for j in range(len(X_full[-1])):
-                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+            for j in range(len(X[-1])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
-                    if alphabet[index] == change_from:
-                        for k in range(len(change_to)):
-                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    if alphabet[index] in change_from:
+                        k = change_from.index(alphabet[index])
+                        for k2 in range(len(change_to[k])):
+                            X_add.append([1, alphabet.find(change_to[k][k2]) / (len(alphabet) + 1)])
                     else:
-                        X_add.append(X_full[-1][j])
+                        X_add.append(X[-1][j])
                 else:
-                    X_add.append(X_full[-1][j])
+                    X_add.append(X[-1][j])
             X_add = X_add[:shape[0]]
             for j in range(len(X_add)):
                 X_add[j][0] = j / len(X_add)
-            X_full[-1] = copy.deepcopy(X_add)
+            X[-1] = copy.deepcopy(X_add)
         for i in range(samples_selected + 1):
-            X_full.append(copy.deepcopy(X_full[i]))
-            threshold = random.uniform(0, 1)
-            for j in range(len(X_full[0])):
-                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+            X.append(copy.deepcopy(X[i]))
+            threshold = 0.3
+            for j in range(len(X[0])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
                     if alphabet[index] in '0123456789' and random.uniform(0, 1) < threshold:
-                        X_full[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
-        Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
-        X_full = np.array(X_full, dtype='float32')
-        for i in range(len(Y)):
-            Y[i] = [1 - Y[i][0], Y[i][0]]
+                        X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
+        Y = [[0, 1]] * (samples_selected + 1) + [[1, 0]] * (samples_selected + 1)
+        X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
+        X_full = copy.deepcopy(X)
         X = []
         for i in X_full:
             x = []
@@ -593,6 +614,15 @@ def preprocess_gsm8k():
 #preprocess_gsm8k()
 x_len = 1100
 
+def pseudo_random_pairing(n, k):
+    X = []
+    for i in range(k):
+        X.append([random.randint(0, n - 1), random.randint(0, n - 1)])
+    X = np.array(X, dtype='int32')
+    np.save('./custom_models_2/pseudo_random_pairing.npy', X)
+
+#pseudo_random_pairing(1064, 1064)
+
 def train_model():
     #the best result so far is total_input = 11, A = [[10, 9], [1, 1]], input_size = hidden_size
     #bad with two smart selection layers
@@ -605,9 +635,17 @@ def train_model():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 200
+        samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
+        content = 'Adam bougth 6 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*6=<<2*6=12>>$12 in total\n#### 12'
+        X = [[]]
+        for i in range(len(content)):
+            X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
+        for i in range(shape[0] - len(content)):
+            X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
+        for i in range(shape[0]):
+            X[0][i][0] = i / shape[0]
         print('now')
         #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
@@ -621,18 +659,25 @@ def train_model():
         to_change = list(set(to_change))
         for i in range(samples_selected):
             X.append(copy.deepcopy(X[0]))
-            change_from = to_change[random.randint(0, len(to_change) - 1)]
-            change_to = str(random.randint(0, 9))
-            for k in range(2):
-                if random.randint(0, 9) < 5:
-                    change_to += str(random.randint(0, 9))
+            change_num = random.randint(1, 10)
+            change_from = []
+            change_to = []
+            for k in range(change_num):
+                change_from.append(to_change[random.randint(0, len(to_change) - 1)])
+            change_from = list(set(change_from))
+            for k in range(change_num):
+                change_to.append(str(random.randint(0, 9)))
+                for k2 in range(1):
+                    if random.randint(0, 9) < 3:
+                        change_to[k] += str(random.randint(0, 9))
             X_add = []
             for j in range(len(X[-1])):
                 index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
-                    if alphabet[index] == change_from:
-                        for k in range(len(change_to)):
-                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    if alphabet[index] in change_from:
+                        k = change_from.index(alphabet[index])
+                        for k2 in range(len(change_to[k])):
+                            X_add.append([1, alphabet.find(change_to[k][k2]) / (len(alphabet) + 1)])
                     else:
                         X_add.append(X[-1][j])
                 else:
@@ -643,7 +688,7 @@ def train_model():
             X[-1] = copy.deepcopy(X_add)
         for i in range(samples_selected + 1):
             X.append(copy.deepcopy(X[i]))
-            threshold = random.uniform(0, 1)
+            threshold = 0.3
             for j in range(len(X[0])):
                 index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
@@ -652,14 +697,15 @@ def train_model():
         Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
-    X = X.tolist()
+    '''X = X.tolist()
     mxlen = len(X[0])
+    random_pairs = np.load('./custom_models_2/pseudo_random_pairing.npy')
     for i in range(len(X)):
         for j in range(mxlen):
-            r1 = random.randint(0, mxlen - 1)
-            r2 = random.randint(0, mxlen - 1)
+            r1 = random_pairs[j][0]
+            r2 = random_pairs[j][1]
             X[i].append([(X[i][r1][0] + X[i][r2][0]) % 1, (X[i][r1][1] + X[i][r2][1]) % 1])
-    X = np.array(X, dtype='float32')
+    X = np.array(X, dtype='float32')'''
     print(X.shape)
     '''for i in range(len(X)):
         res = ''
@@ -676,12 +722,12 @@ def train_model():
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     loss_graph_x = []
     loss_graph_y = []
     def trainint_loop(epoch):
         start_time = time.time()
-        Y_pred_ss1 = smartselection1.forward(X)
+        Y_pred_ss1 = smartselection1.forward(X, double_matrix=0)
         Y_pred_middle1 = dense_middle1.forward(Y_pred_ss1)
         Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
         Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
@@ -703,16 +749,17 @@ def train_model():
         loss_graph_y.append(loss)
         return (loss, accuracy)
 
-    for epoch in range(1,501):
+    for epoch in range(1,1001):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.15 or accuracy > 0.98:
+        if loss < 0.1 or accuracy > 0.98:
             break
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
 
-content = {"question": "Natalia sold clips to 43 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
-           "answer": "Natalia sold 43/4 = <<43/4=24>>24 clips in May.\nNatalia sold 43+24 = <<43+24=85>>87 clips altogether in April and May.\n#### 85"}
+content = {"question": "Natalia sold clips to 54 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+           "answer": "Natalia sold 54/2 = <<54/2=27>>27 clips in May.\nNatalia sold 54+27 = <<54+27=81>>81 clips altogether in April and May.\n#### 81"}
 content = content['question'] + content['answer']
+content = 'Adam bougth 5 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*5=<<2*5=10>>$10 in total\n#### 32'
 content = list(content)
 for i in range(len(content)):
     if content[i] in '0123456789':
@@ -732,12 +779,12 @@ def use_model():
     input_shape = X_full.shape
     print(input_shape)
     learning_rate = 0.01
-    smartselection1 = SmartSelectionLayer(input_shape, 10, 100, 1, learning_rate=learning_rate / 10, total_input=11)
+    smartselection1 = SmartSelectionLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=11)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     smartselection1.load_model(filepath)
     dense_middle1.load_model(filepath)
     dense_middle2.load_model(filepath)
@@ -752,16 +799,17 @@ def use_model():
         X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
     for i in range(input_shape[1]):
         X[0][i][0] = i / input_shape[1]
+    '''random_pairs = np.load('./custom_models_2/pseudo_random_pairing.npy')
     mxlen = len(X[0])
     for i in range(len(X)):
         for j in range(mxlen):
-            r1 = random.randint(0, mxlen - 1)
-            r2 = random.randint(0, mxlen - 1)
-            X[i].append([(X[i][r1][0] + X[i][r2][0]) % 1, (X[i][r1][1] + X[i][r2][1]) % 1])
-    X = np.array(X, dtype='float32')
+            r1 = random_pairs[j][0]
+            r2 = random_pairs[j][1]
+            X[i].append([(X[i][r1][0] + X[i][r2][0]) % 1, (X[i][r1][1] + X[i][r2][1]) % 1])'''
     
+    X = np.array(X, dtype='float32')
     X = np.concatenate((X, X), axis=0)
-    Y_pred_ss = smartselection1.forward(X)
+    Y_pred_ss = smartselection1.forward(X, double_matrix=0)
     Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
     Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
     Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
@@ -791,54 +839,69 @@ def train_model_simple():
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
     else:
-        samples_selected = 200
-        X_full = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
-        shape = X_full[0].shape
+        samples_selected = 100
+        X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
+        shape = X[0].shape
+        content = 'Adam bougth 6 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*6=<<2*6=12>>$12 in total\n#### 12'
+        X = [[]]
+        for i in range(len(content)):
+            X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
+        for i in range(shape[0] - len(content)):
+            X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
+        for i in range(shape[0]):
+            X[0][i][0] = i / shape[0]
         print('now')
-        #print(X_full)
+        #print(X)
         Y = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_y.npy')[x_len:x_len + samples_selected]), axis=0)
-        X_full = [X_full[0]]
+        X = [X[0]]
         to_change = []
-        for i in range(len(X_full[0])):
-            index = round(X_full[0][i][1] * (len(alphabet) + 1))
+        for i in range(len(X[0])):
+            index = round(X[0][i][1] * (len(alphabet) + 1))
             if index < len(alphabet):
                 if alphabet[index] in '0123456789':
                     to_change.append(alphabet[index])
         to_change = list(set(to_change))
         for i in range(samples_selected):
-            X_full.append(copy.deepcopy(X_full[0]))
-            change_from = to_change[random.randint(0, len(to_change) - 1)]
-            change_to = str(random.randint(0, 9))
-            for k in range(2):
-                if random.randint(0, 9) < 5:
-                    change_to += str(random.randint(0, 9))
+            X.append(copy.deepcopy(X[0]))
+            change_num = random.randint(1, 10)
+            change_from = []
+            change_to = []
+            for k in range(change_num):
+                change_from.append(to_change[random.randint(0, len(to_change) - 1)])
+            change_from = list(set(change_from))
+            for k in range(change_num):
+                change_to.append(str(random.randint(0, 9)))
+                for k2 in range(1):
+                    if random.randint(0, 9) < 3:
+                        change_to[k] += str(random.randint(0, 9))
             X_add = []
-            for j in range(len(X_full[-1])):
-                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+            for j in range(len(X[-1])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
-                    if alphabet[index] == change_from:
-                        for k in range(len(change_to)):
-                            X_add.append([1, alphabet.find(change_to[k]) / (len(alphabet) + 1)])
+                    if alphabet[index] in change_from:
+                        k = change_from.index(alphabet[index])
+                        for k2 in range(len(change_to[k])):
+                            X_add.append([1, alphabet.find(change_to[k][k2]) / (len(alphabet) + 1)])
                     else:
-                        X_add.append(X_full[-1][j])
+                        X_add.append(X[-1][j])
                 else:
-                    X_add.append(X_full[-1][j])
+                    X_add.append(X[-1][j])
             X_add = X_add[:shape[0]]
             for j in range(len(X_add)):
                 X_add[j][0] = j / len(X_add)
-            X_full[-1] = copy.deepcopy(X_add)
+            X[-1] = copy.deepcopy(X_add)
         for i in range(samples_selected + 1):
-            X_full.append(copy.deepcopy(X_full[i]))
-            threshold = random.uniform(0, 1)
-            for j in range(len(X_full[0])):
-                index = round(X_full[-1][j][1] * (len(alphabet) + 1))
+            X.append(copy.deepcopy(X[i]))
+            threshold = 0.3
+            for j in range(len(X[0])):
+                index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
                     if alphabet[index] in '0123456789' and random.uniform(0, 1) < threshold:
-                        X_full[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
+                        X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
         Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
-        X_full = np.array(X_full, dtype='float32')
+        X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
-
+        X_full = copy.deepcopy(X)
         X = []
         for i in X_full:
             x = []
@@ -961,7 +1024,7 @@ def use_model_simple():
 if 0:
     train_model()
     #train_model_simple()
-elif 1:
+elif 0:
     use_model()
     use_model_simple()
 #train_model_keras()

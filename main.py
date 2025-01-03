@@ -446,11 +446,9 @@ def train_model_keras():
     input_shape = (X.shape[1], 1, )
     inputs = keras.Input(shape=input_shape)
     lstm1 = layers.LSTM(100, activation='relu', return_sequences=True)(inputs)
-    conv1 = layers.Conv1D(100, (3), activation='relu')(lstm1)
-    avgpool1 = layers.AveragePooling1D(100)(conv1)
-    flatten1 = layers.Flatten()(avgpool1)
+    lstm2 = layers.LSTM(100, activation='relu', return_sequences=False)(lstm1)
     #dense1 = layers.Dense(32, activation='relu')(flatten1)
-    dense2 = layers.Dense(100, activation='relu')(flatten1)
+    dense2 = layers.Dense(100, activation='relu')(lstm2)
     dense3 = layers.Dense(100, activation='relu')(dense2)
     flatten2 = layers.Flatten()(dense3)
     #layers.LSTM(200, activation='relu', return_sequences=False),
@@ -654,7 +652,14 @@ def train_model():
         Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
-
+    X = X.tolist()
+    mxlen = len(X[0])
+    for i in range(len(X)):
+        for j in range(mxlen):
+            r1 = random.randint(0, mxlen - 1)
+            r2 = random.randint(0, mxlen - 1)
+            X[i].append([(X[i][r1][0] + X[i][r2][0]) % 1, (X[i][r1][1] + X[i][r2][1]) % 1])
+    X = np.array(X, dtype='float32')
     print(X.shape)
     '''for i in range(len(X)):
         res = ''
@@ -671,7 +676,7 @@ def train_model():
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
-
+    filepath = './custom_models_2/test_model'
     loss_graph_x = []
     loss_graph_y = []
     def trainint_loop(epoch):
@@ -689,11 +694,11 @@ def train_model():
         dA2 = dense_middle1.backward(Y_pred_ss1, Y_pred_middle1, dA2)
         dA2 = smartselection1.backward(X, Y_pred_ss1, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        smartselection1.save_model('./custom_models/test_model')
-        dense_middle1.save_model('./custom_models/test_model')
-        dense_middle2.save_model('./custom_models/test_model')
-        dense_middle3.save_model('./custom_models/test_model')
-        dense_output.save_model('./custom_models/test_model')
+        smartselection1.save_model(filepath)
+        dense_middle1.save_model(filepath)
+        dense_middle2.save_model(filepath)
+        dense_middle3.save_model(filepath)
+        dense_output.save_model(filepath)
         loss_graph_x.append(epoch)
         loss_graph_y.append(loss)
         return (loss, accuracy)
@@ -706,7 +711,7 @@ def train_model():
     plt.show()
 
 content = {"question": "Natalia sold clips to 43 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
-           "answer": "Natalia sold 43/4 = <<43/4=24>>24 clips in May.\nNatalia sold 43+24 = <<43+24=85>>33 clips altogether in April and May.\n#### 85"}
+           "answer": "Natalia sold 43/4 = <<43/4=24>>24 clips in May.\nNatalia sold 43+24 = <<43+24=85>>87 clips altogether in April and May.\n#### 85"}
 content = content['question'] + content['answer']
 content = list(content)
 for i in range(len(content)):
@@ -732,11 +737,12 @@ def use_model():
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    smartselection1.load_model('./custom_models/test_model')
-    dense_middle1.load_model('./custom_models/test_model')
-    dense_middle2.load_model('./custom_models/test_model')
-    dense_middle3.load_model('./custom_models/test_model')
-    dense_output.load_model('./custom_models/test_model')
+    filepath = './custom_models_2/test_model'
+    smartselection1.load_model(filepath)
+    dense_middle1.load_model(filepath)
+    dense_middle2.load_model(filepath)
+    dense_middle3.load_model(filepath)
+    dense_output.load_model(filepath)
     
 
     X = [[]]
@@ -746,8 +752,14 @@ def use_model():
         X[0].append([1, len(alphabet) / (len(alphabet) + 1)])
     for i in range(input_shape[1]):
         X[0][i][0] = i / input_shape[1]
-    
+    mxlen = len(X[0])
+    for i in range(len(X)):
+        for j in range(mxlen):
+            r1 = random.randint(0, mxlen - 1)
+            r2 = random.randint(0, mxlen - 1)
+            X[i].append([(X[i][r1][0] + X[i][r2][0]) % 1, (X[i][r1][1] + X[i][r2][1]) % 1])
     X = np.array(X, dtype='float32')
+    
     X = np.concatenate((X, X), axis=0)
     Y_pred_ss = smartselection1.forward(X)
     Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
@@ -921,12 +933,13 @@ def use_model_simple():
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_middle4 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 4, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 5, learning_rate=learning_rate, dropout=0)
-    dense_input.load_model('./custom_models/test_model_simple')
-    dense_middle1.load_model('./custom_models/test_model_simple')
-    dense_middle2.load_model('./custom_models/test_model_simple')
-    dense_middle3.load_model('./custom_models/test_model_simple')
-    dense_middle4.load_model('./custom_models/test_model_simple')
-    dense_output.load_model('./custom_models/test_model_simple')
+    filepath = './custom_models/test_model_simple'
+    dense_input.load_model(filepath)
+    dense_middle1.load_model(filepath)
+    dense_middle2.load_model(filepath)
+    dense_middle3.load_model(filepath)
+    dense_middle4.load_model(filepath)
+    dense_output.load_model(filepath)
 
 
     X = [[]]

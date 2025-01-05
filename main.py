@@ -22,12 +22,12 @@ os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 #        gpus[0],
 #        [tf.config.LogicalDeviceConfiguration(memory_limit=3000)])
 
-'''data = json.load(open('/home/user/Desktop/proofs_dataset/number_theory.json', 'r'))
+data = json.load(open('/home/user/Desktop/proofs_dataset/number_theory.json', 'r'))
 data_train = []
 with open('/home/user/Desktop/datasets/gsm8k_train.jsonl', 'r') as f:
     for line in f:
         data_train.append(json.loads(line))
-all_tokens = {}'''
+all_tokens = {}
 
 data_raw = open('/home/user/Desktop/datasets/logiqa_train.txt', 'r').readlines()
 data_X = []
@@ -57,15 +57,15 @@ def all_tokens_gsm8k():
         for char in sample['answer']:
             all_tokens[char] = 1
 
-#all_tokens_gsm8k()
+'''all_tokens_gsm8k()
 #all_tokens_nt()
 
-'''alphabet = ''
+alphabet = ''
 for token in all_tokens:
     alphabet += token'''
 
 class AdamOptimizer:
-    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+    def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.98, epsilon=1e-8):
         self.learning_rate = learning_rate
         self.beta1 = beta1
         self.beta2 = beta2
@@ -644,7 +644,7 @@ def train_model_symbols():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    elif 1:
+    elif 0:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
@@ -708,7 +708,7 @@ def train_model_symbols():
         X = np.array(X, dtype='float32')
         Y = np.array(Y, dtype='float32')
     elif 1:
-        samples_selected = 2000
+        samples_selected = 10000
         X = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')[:samples_selected]
         Y = np.load('/home/user/Desktop/datasets/logiqa_chaos_y.npy')[:samples_selected]
     '''X = X.tolist()
@@ -763,9 +763,9 @@ def train_model_symbols():
         loss_graph_y.append(loss)
         return (loss, accuracy)
 
-    for epoch in range(1,1001):
+    for epoch in range(1,10001):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.1 or accuracy > 0.98:
+        if loss < 0.16 or accuracy > 0.98:
             break
     plt.plot(loss_graph_x, loss_graph_y)
     plt.show()
@@ -780,7 +780,7 @@ for i in range(len(content)):
         if random.uniform(0,1) < 0:
             content[i] = str(random.randint(0,9))
 content = ''.join(content)
-content = 'Continuous exposure to indoor fluorescent lights is beneficial to the health of hamsters with heart disease.One group of hamsters exposed to continuous exposure to fluorescent lights has an average lifespan that is 2.5% longer than another one of the same species but living in a black wall.\nWhich of the following questions was the initial motivation for conducting the above experiment?\nA.Can hospital light therapy be proved to promote patient recovery?'
+content = 'All Cantonese don\'t like chili, so all southerners don\'t like chili.\nWhich of the following can guarantee the above argument?\nC.Some Cantonese are southerners and all southerners are Cantonese'
 
 #print(content)
 
@@ -1054,10 +1054,10 @@ def use_model_symbols_simple():
     Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
     print(Y_pred_final)
 
-if 1:
+if 0:
     train_model_symbols()
     #train_model_symbols_simple()
-elif 0:
+elif 1:
     use_model_symbols()
     use_model_symbols_simple()
 #train_model_symbols_keras()

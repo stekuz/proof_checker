@@ -510,7 +510,7 @@ class FeedForwardLayer:
         #self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
         #self.learning_rate = max(self.learning_rate, 0.00001)
         self.mx = tf.math.reduce_max(abs(self.Z2)) + 1e-10
-        epsilon = 5e-3
+        epsilon = 1e-10
         self.noise_matrix = tf.convert_to_tensor(np.diag(np.random.uniform(1 - epsilon, 1 + epsilon, self.Z2.shape[1])), dtype='float32')
         if output:
             #return dropout_mask * tf.nn.softmax(self.Z2)
@@ -521,7 +521,7 @@ class FeedForwardLayer:
     def compute_loss(self, Y_pred, Y_true):
         #epsilon = 1e-8
         #loss = -tf.reduce_mean(tf.reduce_sum(Y_true * tf.math.log(Y_pred + epsilon), axis=-1))
-        loss = tf.reduce_mean(tf.reduce_sum(tf.math.sqrt(abs(Y_true - Y_pred))))
+        loss = tf.reduce_sum(tf.math.sqrt(abs(Y_true - Y_pred))) / (Y_pred.shape[0] * Y_pred.shape[1])
         #l2_reg_cost = (self.l2_lambda / 2) * (tf.reduce_sum(tf.square(self.W1)) + tf.reduce_sum(tf.square(self.W2)))
         return loss
 
@@ -549,12 +549,12 @@ class FeedForwardLayer:
         dW1 = tf.linalg.matmul(tf.transpose(X), dZ1) / m #+ (self.l2_lambda * self.W1 / m)
         db1 = tf.math.reduce_sum(dZ1, axis=0, keepdims=True) / m 
 
-        '''mnval = -1
+        mnval = -1
         mxval = 1
         dW1 = tf.clip_by_value(dW1, mnval, mxval)
         db1 = tf.clip_by_value(db1, mnval, mxval)
         dW2 = tf.clip_by_value(dW2, mnval, mxval)
-        db2 = tf.clip_by_value(db2, mnval, mxval)'''
+        db2 = tf.clip_by_value(db2, mnval, mxval)
         #print(tf.math.reduce_max(abs(dW1)))
 
         def optimize():
@@ -757,19 +757,20 @@ def train_model_words():
     learning_rate = 0.0001
     hidden_size = 100
     total_input = 13
-    chaostranform1 = ChaosTransformLayer(X.shape, hidden_size, hidden_size * 10, 1, learning_rate=learning_rate / 100, total_input=total_input)
-    hidden_size *= 10
+    chaostranform1 = ChaosTransformLayer(X.shape, hidden_size, hidden_size * total_input, 1, learning_rate=learning_rate / 100, total_input=total_input)
+    hidden_size *= total_input
     dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, mxlen, 4, learning_rate=learning_rate)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     loss_graph_x = []
     loss_graph_y = []
     accuracy_graph_x = []
     accuracy_graph_y = []
     avg_loss = [0 for i in range(100)]
-    threshold_loss = 1
+    avg_accuracy = [0 for i in range(100)]
+    threshold_loss = 0.03
     def trainint_loop(epoch):
         start_time = time.time()
         Y_pred_chaos = chaostranform1.forward(X, double_matrix=0)
@@ -780,14 +781,16 @@ def train_model_words():
         loss = dense_output.compute_loss(Y_pred_final, Y)
         avg_loss[epoch % 100] = loss
         accuracy = dense_output.compute_accuracy(Y_pred_final, Y)
+        avg_accuracy[epoch % 100] = accuracy
         dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, output=1)
         dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2)
         dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2)
         dA2 = dense_middle1.backward(Y_pred_chaos, Y_pred_middle1, dA2)
         dA2 = chaostranform1.backward(X, Y_pred_chaos, dA2, double_matrix=0)
         val_accuracy = 0
-        print(f'epoch: {epoch}, Loss: {loss}, Average loss (per 100): {sum(avg_loss) / 100}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        if epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98:
+        print(f'epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
+        print(f'average loss (per 100): {sum(avg_loss) / 100}, average accuracy: {sum(avg_accuracy) / 100}')
+        if epoch % 500 < 20 or epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98:
             Y_pred_chaos = chaostranform1.forward(validation_x, double_matrix=0, new_X=1)
             Y_pred_middle1 = dense_middle1.forward(Y_pred_chaos)
             Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
@@ -796,6 +799,7 @@ def train_model_words():
             val_loss = dense_output.compute_loss(Y_pred_final, validation_y)
             val_accuracy = dense_output.compute_accuracy(Y_pred_final, validation_y)
             print(f'validation loss: {val_loss}, validation accuracy: {val_accuracy}')
+        if epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98:
             chaostranform1.save_model(filepath)
             dense_middle1.save_model(filepath)
             dense_middle2.save_model(filepath)
@@ -933,7 +937,7 @@ def use_model_seq2seq():
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     #filepath = './custom_models/test_model'
     chaostranform1.load_model(filepath)
     dense_middle1.load_model(filepath)
@@ -1080,10 +1084,14 @@ def train_model_keras():
 
 
 contents = ['have+', 'time-', 'great+', 'year+-', 'thing-', 'way-', 'long+-', 'day-', 'man+', 'last-', 'old-', 'important-']#no chaos
-contents = ['have+', 'time+', 'great+', 'year-', 'thing+', 'way+-', 'long+', 'day-', 'man+', 'last+-', 'old-', 'important-']
+contents = ['have+', 'time+', 'great+', 'year+-', 'thing+', 'way+-', 'long+-', 'day-', 'man+', 'last+-', 'old-', 'important-']
 contents = ['have', 'time', 'great', 'year', 'thing', 'way', 'long', 'day', 'man', 'last', 'old', 'important']
 content = contents[11] + ' '
-content = 'it is a new day '
+#content = 'it is a new day '
+#content = 'it is a good day '
+#content = 'old day '
+content = 'new man '
+
 if 0:
     train_model_words()
 elif 1:

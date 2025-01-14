@@ -93,6 +93,11 @@ common_words=[
 #3100 epochs for 0.98 accuracy for two matrices with random multiples
 #3300 epochs for 0.98 accuracy for one matrix without random multiples
 
+#chaotic transformer can achieve 0.99 of accuracy on the training set
+#chaotic transformer can achieve 0.33 of true pseudo accuracy (the absolute deviation of the first translated word from the true one is less than 10)
+#only dense layers can achieve 0.5 of true pseudo accuracy but can not achieve 0.9 of accuracy on the training set
+#chaotic transformer also can achieve 0.5 of true pseudo accuracy but can achieve 0.99 of accuracy on the training set
+
 all_tokens = {}
 
 data_train = []
@@ -127,10 +132,6 @@ for i in range(len(data_raw)):
     if now != '':
         de.append(now)
         now = ''
-    for j in de:
-        all_tokens[j] = 1
-    for j in en:
-        all_tokens[j] = 1
     #data_train.append([de, en])
     mxlen = max([mxlen, len(de) + 2, len(en) + 2])
 
@@ -295,7 +296,7 @@ def data_preparation_wmt():
             if i and len(row) == 2:
                 data_raw.append(row)
             i += 1
-            if i == 1000000:
+            if i == 10000:
                 break
     for i in range(len(data_raw)):
         de = []
@@ -328,21 +329,24 @@ def data_preparation_wmt():
                 check = 0 
             en.append(now)
             now = ''
-        if check == 0:
-            continue
         for j in de:
             all_tokens[j] = 1
         for j in en:
             all_tokens[j] = 1
         data_train.append([de, en])
-        mxlen = max([mxlen, len(de) + 100, len(en) + 100])
+        mxlen = max([mxlen, len(de) + 2, len(en) + 2])
     with open('./all_tokens.txt', 'w') as f:
-        for i in all_tokens_list:
+        for i in all_tokens:
             f.write(i + '\n')
+    with open('./mxlen.txt', 'w') as f:
+        f.write(str(mxlen))
+
+#data_preparation_wmt()
+mxlen = int(open('./mxlen.txt', 'r').readlines()[0])
 all_tokens_list = open('./all_tokens.txt', 'r').readlines()
 all_tokens_list = [token[:-1] for token in all_tokens_list]
 all_tokens_list = sorted(all_tokens_list)
-#print(all_tokens_list)
+print(all_tokens_list)
 
 for i in range(len(all_tokens_list)):
     all_tokens[all_tokens_list[i]] = i
@@ -358,8 +362,8 @@ for i in range(len(data_raw)):
     for j in data_raw[i][0]:
         if j in special_chars:
             if now != '':
-                en.append(now + j)
-            #en.append(j)
+                en.append(now)
+            en.append(j)
             now = ''
         else:
             now += j.lower()
@@ -369,8 +373,8 @@ for i in range(len(data_raw)):
     for j in data_raw[i][1]:
         if j in special_chars:
             if now != '':
-                de.append(now + j)
-            #de.append(j)
+                de.append(now)
+            de.append(j)
             now = ''
         else:
             now += j.lower()
@@ -378,7 +382,7 @@ for i in range(len(data_raw)):
         de.append(now)
         now = ''
     data_validation.append([de, en])
-    #mxlen = max([mxlen, len(de) + 2, len(en) + 2])
+    #mxlen = max([mxlen, len(de) + 5, len(en) + 5])
 
 for i in range(len(data_validation)):
     for j in range(len(data_validation[i][1])):
@@ -409,31 +413,31 @@ def preprocess_translation_wmt():
     global mxlen
 
     for i in range(len(data_train)):
-        for k in range(2):
-            for j in range(len(data_train[i][k])):
-                data_train[i][k][j] = [1, all_tokens[data_train[i][k][j]] / (len(all_tokens) + 1)]
+        for j in range(len(data_train[i][1])):
+            data_train[i][1][j] = [1, all_tokens[data_train[i][1][j]] / (len(all_tokens) + 1)]
+        for j in range(len(data_train[i][0])):
+            data_train[i][0][j] = all_tokens[data_train[i][0][j]]
 
     
     X = []
     Y = []
     for i in range(len(data_train)):
-        to_add = []
-        for j in range(len(data_train[i][0])):
-            X.append(data_train[i][1] + to_add)
-            Y.append(data_train[i][0][j][1])
-            to_add.append([1, data_train[i][0][j][1]])
-    mxlen *= 2
+        X.append(data_train[i][1])
+        Y.append(data_train[i][0])
     for i in range(len(X)):
         nowlen = len(X[i])
         for j in range(mxlen - nowlen):
             X[i].append([1, len(all_tokens) / (len(all_tokens) + 1)])
         for j in range(mxlen):
             X[i][j][0] = j / mxlen
+        nowlen = len(Y[i])
+        for j in range(mxlen - nowlen):
+            Y[i].append(len(all_tokens))
     X = np.array(X, dtype='float32')
     Y = np.array(Y, dtype='float32')
 
-    np.save('/home/user/Desktop/datasets/translation_en_de_train_common_x.npy', X)
-    np.save('/home/user/Desktop/datasets/translation_en_de_train_common_y.npy', Y)
+    np.save('/home/user/Desktop/datasets/translation_en_de_train_wmt_x.npy', X)
+    np.save('/home/user/Desktop/datasets/translation_en_de_train_wmt_y.npy', Y)
 
 #preprocess_translation_wmt()
 
@@ -510,13 +514,16 @@ class FeedForwardLayer:
         #self.learning_rate += random.uniform(-self.learning_rate / 9, self.learning_rate / 10)
         #self.learning_rate = max(self.learning_rate, 0.00001)
         self.mx = tf.math.reduce_max(abs(self.Z2)) + 1e-10
-        epsilon = 1e-10
-        self.noise_matrix = tf.convert_to_tensor(np.diag(np.random.uniform(1 - epsilon, 1 + epsilon, self.Z2.shape[1])), dtype='float32')
+        epsilon = (1 / (self.optimizer.t + 1)) ** 0.8 * 0
+        #self.noise_matrix = tf.convert_to_tensor(np.diag(np.random.uniform(1 - epsilon, 1 + epsilon, self.Z2.shape[1])), dtype='float32')
+        self.noise_matrix = tf.random.uniform(self.Z2.shape, 1 - epsilon, 1 + epsilon)
         if output:
             #return dropout_mask * tf.nn.softmax(self.Z2)
-            return tf.linalg.matmul(self.Z2, self.noise_matrix)
+            #return tf.linalg.matmul(self.Z2, self.noise_matrix)
+            return self.Z2 * self.noise_matrix
         else:
-            return tf.linalg.matmul(tf.nn.relu(self.Z2), self.noise_matrix)
+            #return tf.linalg.matmul(tf.nn.relu(self.Z2), self.noise_matrix)
+            return tf.nn.relu(self.Z2) * self.noise_matrix
 
     def compute_loss(self, Y_pred, Y_true):
         #epsilon = 1e-8
@@ -528,19 +535,23 @@ class FeedForwardLayer:
     def compute_accuracy(self, Y_pred, Y_true):
         #y_pred_classes = tf.argmax(Y_pred, axis=-1)
         #y_true_classes = tf.argmax(Y_true, axis=-1)
-        y_pred_classes = tf.round(Y_pred * (len(all_tokens) + 1))
-        y_true_classes = tf.round(Y_true * (len(all_tokens) + 1))
-        correct_predictions = tf.equal(y_true_classes, y_pred_classes)
+        y_pred_classes = tf.cast(tf.round(Y_pred * (len(all_tokens) + 1)), dtype='int32')
+        y_true_classes = tf.cast(tf.round(Y_true * (len(all_tokens) + 1)), dtype='int32')
+        threshold = 5
+        correct_predictions = abs(y_true_classes - y_pred_classes) < threshold
         return tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
 
     def backward(self, X, A2, dA2, output=0):
         m = dA2.shape[1] 
-        self.noise_matrix = tf.linalg.diag(1.0 / tf.linalg.diag_part(self.noise_matrix))
+        #self.noise_matrix = tf.linalg.diag(1.0 / tf.linalg.diag_part(self.noise_matrix))
+        self.noise_matrix = 1.0 / self.noise_matrix
         if output:
             #dZ2 = dA2 * tf.nn.softmax(A2)
-            dZ2 = tf.linalg.matmul(dA2, self.noise_matrix) #* tf.cast(A2 > 0, dtype='float32')
+            #dZ2 = tf.linalg.matmul(dA2, self.noise_matrix) #* tf.cast(A2 > 0, dtype='float32')
+            dZ2 = dA2 * self.noise_matrix
         else:
-            dZ2 = tf.linalg.matmul(dA2, self.noise_matrix) * tf.cast(A2 > 0, dtype='float32')
+            #dZ2 = tf.linalg.matmul(dA2, self.noise_matrix) * tf.cast(A2 > 0, dtype='float32')
+            dZ2 = dA2 * self.noise_matrix * tf.cast(A2 > 0, dtype='float32')
         dW2 = tf.linalg.matmul(tf.transpose(self.A1), dZ2) / m #+ (self.l2_lambda * self.W2 / m)
         db2 = tf.math.reduce_sum(dZ2, axis=0, keepdims=True) / m 
 
@@ -733,7 +744,7 @@ class ChaosTransformLayer:
 
 def train_model_words():
     samples_selected = 1000
-    X = np.load('/home/user/Desktop/datasets/translation_en_de_train_common_seq2seq_x.npy')[:samples_selected]
+    X = np.load('/home/user/Desktop/datasets/translation_en_de_anki_x.npy')[:samples_selected]
     print(len(X))
     '''for i in range(len(X)):
         res = ''
@@ -742,7 +753,7 @@ def train_model_words():
             if index < len(all_tokens):
                 res += all_tokens_list[index]
         print(res)'''
-    Y = np.load('/home/user/Desktop/datasets/translation_en_de_train_common_seq2seq_y.npy')[:samples_selected]
+    Y = np.load('/home/user/Desktop/datasets/translation_en_de_anki_y.npy')[:samples_selected]
     '''Y = Y.tolist()
     for i in range(len(Y)):
         Yi = Y[i]
@@ -753,9 +764,9 @@ def train_model_words():
     for i in range(len(Y)):
         for j in range(len(Y[i])):
             Y[i][j] /= len(all_tokens) + 1
-    print(X.shape, Y.shape)
+    print(X.shape, Y.shape, mxlen)
     learning_rate = 0.0001
-    hidden_size = 100
+    hidden_size = 5
     total_input = 13
     chaostranform1 = ChaosTransformLayer(X.shape, hidden_size, hidden_size * total_input, 1, learning_rate=learning_rate / 100, total_input=total_input)
     hidden_size *= total_input
@@ -763,7 +774,7 @@ def train_model_words():
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, mxlen, 4, learning_rate=learning_rate)
-    filepath = './custom_models/test_model'
+    filepath = './custom_models_2/test_model'
     loss_graph_x = []
     loss_graph_y = []
     accuracy_graph_x = []
@@ -790,7 +801,7 @@ def train_model_words():
         val_accuracy = 0
         print(f'epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
         print(f'average loss (per 100): {sum(avg_loss) / 100}, average accuracy: {sum(avg_accuracy) / 100}')
-        if epoch % 500 < 20 or epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98:
+        if (epoch % 500 < 20 or epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98) and len(validation_x) > 0:
             Y_pred_chaos = chaostranform1.forward(validation_x, double_matrix=0, new_X=1)
             Y_pred_middle1 = dense_middle1.forward(Y_pred_chaos)
             Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
@@ -822,6 +833,103 @@ def train_model_words():
     axis[1].set_title('accuracy')
     plt.show()
 
+def train_model_simple():
+    samples_selected = 1000
+    X = np.load('/home/user/Desktop/datasets/translation_en_de_anki_x.npy')[:samples_selected]
+    print(len(X))
+    X = X.tolist()
+    for i in range(len(X)):
+        for j in range(len(X[i])):
+            X[i][j] = X[i][j][1]
+    X = np.array(X, dtype='float32')
+    print(X.shape)
+    global validation_x
+    validation_x = validation_x.tolist()
+    for i in range(len(validation_x)):
+        for j in range(len(validation_x[i])):
+            validation_x[i][j] = validation_x[i][j][1]
+    validation_x = np.array(validation_x, dtype='float32')
+    Y = np.load('/home/user/Desktop/datasets/translation_en_de_anki_y.npy')[:samples_selected]
+    '''Y = Y.tolist()
+    for i in range(len(Y)):
+        Yi = Y[i]
+        Y[i] = [0] * (len(all_tokens) + 1)
+        Y[i][round(Yi * (len(all_tokens) + 1))] = 1
+        #print(i, all_tokens_list[round(Yi * (len(all_tokens) + 1))], Y[i][0])
+    Y = np.array(Y, dtype='float32')'''
+    for i in range(len(Y)):
+        for j in range(len(Y[i])):
+            Y[i][j] /= len(all_tokens) + 1
+    print(X.shape, Y.shape)
+    learning_rate = 0.0001
+    hidden_size = 100
+    total_input = 13
+    chaostranform1 = FeedForwardLayer(X.shape[1], hidden_size * total_input, hidden_size * total_input, 0, learning_rate=learning_rate)
+    hidden_size *= total_input
+    dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
+    dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
+    dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(hidden_size, hidden_size, mxlen, 4, learning_rate=learning_rate)
+    filepath = './custom_models/test_model'
+    loss_graph_x = []
+    loss_graph_y = []
+    accuracy_graph_x = []
+    accuracy_graph_y = []
+    avg_loss = [0 for i in range(100)]
+    avg_accuracy = [0 for i in range(100)]
+    threshold_loss = 0.03
+    def trainint_loop(epoch):
+        start_time = time.time()
+        Y_pred_chaos = chaostranform1.forward(X)
+        Y_pred_middle1 = dense_middle1.forward(Y_pred_chaos)
+        Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
+        Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
+        Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+        loss = dense_output.compute_loss(Y_pred_final, Y)
+        avg_loss[epoch % 100] = loss
+        accuracy = dense_output.compute_accuracy(Y_pred_final, Y)
+        avg_accuracy[epoch % 100] = accuracy
+        dA2 = dense_output.backward(Y_pred_middle3, Y_pred_final, Y_pred_final - Y, output=1)
+        dA2 = dense_middle3.backward(Y_pred_middle2, Y_pred_middle3, dA2)
+        dA2 = dense_middle2.backward(Y_pred_middle1, Y_pred_middle2, dA2)
+        dA2 = dense_middle1.backward(Y_pred_chaos, Y_pred_middle1, dA2)
+        dA2 = chaostranform1.backward(X, Y_pred_chaos, dA2)
+        val_accuracy = 0
+        print(f'epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
+        print(f'average loss (per 100): {sum(avg_loss) / 100}, average accuracy: {sum(avg_accuracy) / 100}')
+        if (epoch % 500 < 20 or epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98) and len(validation_x) > 0:
+            Y_pred_chaos = chaostranform1.forward(validation_x)
+            Y_pred_middle1 = dense_middle1.forward(Y_pred_chaos)
+            Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
+            Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
+            Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+            val_loss = dense_output.compute_loss(Y_pred_final, validation_y)    
+            val_accuracy = dense_output.compute_accuracy(Y_pred_final, validation_y)
+            print(f'validation loss: {val_loss}, validation accuracy: {val_accuracy}')
+        if epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98:
+            chaostranform1.save_model(filepath)
+            dense_middle1.save_model(filepath)
+            dense_middle2.save_model(filepath)
+            dense_middle3.save_model(filepath)
+            dense_output.save_model(filepath)
+        loss_graph_x.append(epoch)
+        loss_graph_y.append(loss)
+        accuracy_graph_x.append(epoch)
+        accuracy_graph_y.append(accuracy)
+        return (loss, accuracy, val_accuracy)
+
+    for epoch in range(1,30001):
+        loss, accuracy, val_accuracy = trainint_loop(epoch)
+        if loss < threshold_loss or accuracy > 0.98:
+            break
+    figure, axis = plt.subplots(1, 2)
+    axis[0].plot(loss_graph_x, loss_graph_y)
+    axis[0].set_title('loss')
+    axis[1].plot(accuracy_graph_x, accuracy_graph_y)
+    axis[1].set_title('accuracy')
+    plt.show()
+
+
 content = ''
 
 def use_model_words():
@@ -846,7 +954,7 @@ def use_model_words():
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models_3/test_model'
     #filepath = './custom_models/test_model'
     chaostranform1.load_model(filepath)
     dense_middle1.load_model(filepath)
@@ -1082,20 +1190,173 @@ def train_model_keras():
         print(res)
     print(answer)
 
+evaluation_pairs = [
+('go.', 'gehe'),
+('time', 'zeit'),
+#('great', 'großartiger'),
+('year', 'jahr'),
+#('thing', 'sache'),
+('way', 'weg'),
+('long', 'lange'),
+('day', 'tag'),
+('man', 'mann'),
+('last', 'letzte'),
+('old', 'alter'),
+('important', 'wichtiger'),
+('be', 'sei'),
+('good', 'gut'),
+('a', 'eine'),
+('person', 'person'),
+('the', 'der'),
+('first', 'erste'),
+('do', 'mache'),
+('it', 'es'),
+('say', 'sage'),
+('new', 'neue'),
+('get', 'bekomme'),
+('make', 'mache'),
+('go', 'gehe'),
+('little', 'kleine'),
+('is', 'ist'),
+('i', 'ich'),
+('am', 'bin'),
+('you', 'du'),
+('are', 'bist'),
+('he', 'er'),
+('she', 'sie'),
+('we', 'wir'),
+('it is a new day', 'es ist eine neuer tag')
+]
 
-contents = ['have+', 'time-', 'great+', 'year+-', 'thing-', 'way-', 'long+-', 'day-', 'man+', 'last-', 'old-', 'important-']#no chaos
-contents = ['have+', 'time+', 'great+', 'year+-', 'thing+', 'way+-', 'long+-', 'day-', 'man+', 'last+-', 'old-', 'important-']
-contents = ['have', 'time', 'great', 'year', 'thing', 'way', 'long', 'day', 'man', 'last', 'old', 'important']
-content = contents[11] + ' '
-#content = 'it is a new day '
-#content = 'it is a good day '
-#content = 'old day '
-content = 'new man '
+evaluation_pairs = [
+('come on!', 'komm!')
+]
 
-if 0:
+#evaluation_pairs += sentence_pairs
+
+#_1: 1604
+#_2: 1265, 0.265
+#_3: 1497
+
+def evaluate_model():
+    samples_selected = 1
+    X_full = np.load('/home/user/Desktop/datasets/translation_en_de_anki_x.npy')[:samples_selected]
+    Y = np.load('/home/user/Desktop/datasets/translation_en_de_anki_y.npy')[:samples_selected]
+    for i in range(len(Y)):
+        for j in range(len(Y[i])):
+            Y[i][j] /= len(all_tokens) + 1
+    
+    input_shape = X_full.shape
+    #print(X_full)
+    print(input_shape)
+    learning_rate = 0.01
+    chaostranform1 = ChaosTransformLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=13)
+    #chaostranform1 = FeedForwardLayer(input_shape[1], 100, 100, 0, learning_rate=learning_rate)
+    dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
+    dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
+    dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
+    dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
+    filepath = './custom_models_2/test_model'
+    #filepath = './custom_models/test_model'
+    chaostranform1.load_model(filepath)
+    dense_middle1.load_model(filepath)
+    dense_middle2.load_model(filepath)
+    dense_middle3.load_model(filepath)
+    dense_output.load_model(filepath)
+    
+    global content
+    global mxlen
+    value = 0
+    for n in range(len(evaluation_pairs)):
+        content = evaluation_pairs[n][0]
+        translation = evaluation_pairs[n][1]
+        #print(mxlen, content)
+        #mxlen *= 2
+        X = [[]]
+        now = ''
+        en = []
+        de = []
+        for j in content:
+            if j in special_chars:
+                if now != '':
+                    en.append(now)
+                en.append(j)
+                now = ''
+            else:
+                now += j.lower()
+        if now != '':
+            en.append(now)
+            now = ''
+        for j in translation:
+            if j in special_chars:
+                if now != '':
+                    de.append(now)
+                de.append(j)
+                now = ''
+            else:
+                now += j.lower()
+        if now != '':
+            de.append(now)
+            now = ''
+        print('en', en, len(en) )
+        for i in range(len(en)):
+            X[0].append([1, all_tokens[en[i]] / (len(all_tokens) + 1)])
+            #X[0].append(all_tokens[en[i]] / (len(all_tokens) + 1))
+        nowlen = len(X[0])
+        #print(X)
+
+        for i in range(mxlen - nowlen):
+            X[0].append([1, len(all_tokens) / (len(all_tokens) + 1)])
+            #X[0].append(len(all_tokens) / (len(all_tokens) + 1))
+
+        for i in range(mxlen):
+            X[0][i][0] = i / mxlen
+            pass
+        X = np.array(X, dtype='float32')
+        #print(X)
+        X = np.concatenate((X, X), axis=0)
+        Y_pred_ss = chaostranform1.forward(X, new_X=1)
+        Y_pred_middle1 = dense_middle1.forward(Y_pred_ss)
+        Y_pred_middle2 = dense_middle2.forward(Y_pred_middle1)
+        Y_pred_middle3 = dense_middle3.forward(Y_pred_middle2)
+        Y_pred_final = dense_output.forward(Y_pred_middle3, output=1)
+        #print(f'loss: {dense_output.compute_loss(Y_pred_final, Y)}')
+        Y_pred_final = Y_pred_final.numpy()
+        #print(Y_pred_final.shape)
+        d = 0
+        for i in range(len(de)):
+            d += abs(round(Y_pred_final[0][i] * (len(all_tokens) + 1)) - all_tokens[de[i]])
+        value += d * d
+        #if d < 20:
+        #    value += 1
+        answer = ''
+        for i in Y_pred_final[0]:
+            j = round(i * (len(all_tokens) + 1))
+            res = ''
+            for k in range(j - 10, j + 10):
+                if k < len(all_tokens_list):
+                    res += all_tokens_list[k] + ' '
+            if j < len(all_tokens_list):
+                answer += all_tokens_list[j]
+        print(evaluation_pairs[n][0] + ': ' + answer + ' ' + str(d))
+    print(value / len(evaluation_pairs))
+
+contents = ['have+', 'time+', 'great+', 'year-', 'thing-', 'way-', 'long-', 'day-', 'man+', 'last+-', 'old-', 'important-']#no chaos
+contents = ['have+', 'time+', 'great+', 'year-', 'thing+', 'way+', 'long+', 'day-', 'man-', 'last+-', 'old-', 'important-', 'be-', 'person-', 'it-', 'is+-', 'little+-']
+contents = ['have', 'time', 'great', 'year', 'thing', 'way', 'long', 'day', 'man', 'last', 'old', 'important', 'be', 'person', 'it', 'is', 'little']
+content = (contents[16] + ' ') * 1
+#content = 'it is a new day '#-
+#content = 'it is a good day '#-
+#content = 'it is a great time '#-+
+#content = 'old day '#+-
+#content = 'new man '#+
+
+if 1:
     train_model_words()
+    #train_model_simple()
 elif 1:
     #use_model_words()
-    use_model_seq2seq()
+    #use_model_seq2seq()
+    evaluate_model()
 elif 1:
     train_model_keras()

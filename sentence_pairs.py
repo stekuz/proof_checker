@@ -1,3 +1,6 @@
+import numpy as np
+
+special_chars = ['„', '”', '"', '\'', '.', ',', '/', '\\', ' ', '   ', '*', ';', ':', '`', '[', ']', '{', '}', '!', '?', '\n', '$']
 sentence_pairs = [
     ("The dog ran to the tree", "Der Hund rannte zum Baum"),
     ("I want to eat good food", "Ich möchte gutes Essen essen"),
@@ -540,35 +543,150 @@ sentence_pairs = [
 ]
 
 validation_sentences = [
-('have', 'habe'),
+('have', 'haben'),
 ('time', 'zeit'),
-('great', 'großartiger'),
 ('year', 'jahr'),
-('thing', 'sache'),
 ('way', 'weg'),
-('long', 'lange'),
 ('day', 'tag'),
-('man', 'mann'),
-('last', 'letzte'),
-('old', 'alter'),
-('important', 'wichtiger'),
-('be a new man', 'sei eine neuer mann'),
-('man is a man', 'mann ist ein mann'),
+('man', 'mensch'),
+('be a new man', 'sei eine neuer mensch'),
+('man is a man', 'mensch ist ein mensch'),
 ('be a good day', 'sei ein guter tag'),
-('a man', 'eine mann'),
-('it is a good day', 'es ist ein guter tag'),
-('it is a great day', 'es ist ein großartiger tag'),
+('a man', 'eine mensch'),
+('it is a good day', 'es ist ein guter tag'),\
 ('it is a new day', 'es ist ein neuer tag'),
-('old man', 'alter mann')
 ]
 
-sentence_pairs += validation_sentences[:3] * 100
+validation_sentences = []
+
+most_used_english_words = [
+    "the", "be", "to", "of", "and", "a", "in", "that", "have", "I",
+    "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
+    "this", "but", "his", "by", "from", "they", "we", "say", "her",
+    "she", "or", "an", "will", "my", "one", "all", "would", "there",
+    "their", "what", "so", "up", "out", "if", "about", "who", "get",
+    "which", "go", "me", "when", "make", "can", "like", "time", "no",
+    "just", "him", "know", "take", "people", "into", "year", "your",
+    "good", "some", "could", "them", "see", "other", "than", "then",
+    "now", "look", "only", "come", "its", "over", "think", "also",
+    "back", "after", "use", "two", "how", "our", "work", "first", "well",
+    "way", "even", "new", "want", "because", "any", "these", "give",
+    "day", "most", "us", "is", "are", "was", "were", "been", "being",
+    "have", "has", "had", "having", "do", "does", "did", "doing", "a",
+    "an", "the", "and", "but", "if", "or", "because", "as", "until",
+    "while", "of", "at", "by", "for", "with", "about", "against", "between",
+    "into", "through", "during", "before", "after", "above", "below",
+    "to", "from", "up", "down", "in", "out", "on", "off", "over",
+    "under", "again", "further", "then", "once", "here", "there",
+    "when", "where", "why", "how", "all", "any", "both", "each",
+    "few", "more", "most", "other", "some", "such", "no", "nor",
+    "not", "only", "own", "same", "so", "than", "too", "very",
+    "s", "t", "can", "will", "just", "don", "should", "now",
+    "d", "ll", "m", "o", "re", "ve", "y", "ain", "aren", "couldn",
+    "didn", "doesn", "hadn", "hasn", "haven", "isn", "ma", "mightn",
+    "mustn", "needn", "shan", "shouldn", "wasn", "weren", "won", "wouldn"
+]
+
+most_used_english_words = list(set(most_used_english_words))
+
+dataset = open('/home/user/Desktop/datasets/deu.txt', 'r').readlines()
+splitter = '	'
+dataset = [j.split(splitter)[:2] for j in dataset]
+#print(dataset[:100])
+
+def preprocess_anki():
+    dataset = open('/home/user/Desktop/datasets/deu.txt', 'r').readlines()
+    splitter = '	'
+    dataset = [j.split(splitter)[:2] for j in dataset]
+    data_train = []
+    mxlen = 0
+    all_tokens = {}
+    for sample in dataset:
+        en = []
+        de = []
+        now = ''
+        for j in sample[0]:
+            if j in special_chars:
+                if now != '':
+                    en.append(now)
+                    now = ''
+                en.append(j)
+            else:
+                now += j.lower()
+        if now != '':
+            en.append(now)
+            now = ''
+        for j in sample[1]:
+            if j in special_chars:
+                if now != '':
+                    de.append(now)
+                    now = ''
+                de.append(j)
+            else:
+                now += j.lower()
+        if now != '':
+            de.append(now)
+            now = ''
+        check = 0
+        for j in en:
+            if not j in (special_chars + most_used_english_words):
+                check = 1
+        if check or len(en) < 15:
+            continue
+        for j in en:
+            all_tokens[j] = 1
+        for j in de:
+            all_tokens[j] = 1
+        data_train.append([de, en])
+        mxlen = max([mxlen, len(en) + 5, len(de) + 5])
+
+    with open('./all_tokens.txt', 'w') as f:
+        for i in all_tokens:
+            f.write(i + '\n')
+    with open('./mxlen.txt', 'w') as f:
+        f.write(str(mxlen))
+    all_tokens_list = open('./all_tokens.txt', 'r').readlines()
+    all_tokens_list = [token[:-1] for token in all_tokens_list]
+    all_tokens_list = sorted(all_tokens_list)
+    for i in range(len(all_tokens_list)):
+        all_tokens[all_tokens_list[i]] = i
+
+    for i in range(len(data_train)):
+        for j in range(len(data_train[i][1])):
+            data_train[i][1][j] = [1, all_tokens[data_train[i][1][j]] / (len(all_tokens) + 1)]
+        for j in range(len(data_train[i][0])):
+            data_train[i][0][j] = all_tokens[data_train[i][0][j]]
+
+    X = []
+    Y = []
+    for i in range(len(data_train)):
+        X.append(data_train[i][1])
+        Y.append(data_train[i][0])
+    for i in range(len(X)):
+        nowlen = len(X[i])
+        for j in range(mxlen - nowlen):
+            X[i].append([1, len(all_tokens) / (len(all_tokens) + 1)])
+        for j in range(mxlen):
+            X[i][j][0] = j / mxlen
+        nowlen = len(Y[i])
+        for j in range(mxlen - nowlen):
+            Y[i].append(len(all_tokens))
+    X = np.array(X, dtype='float32')
+    Y = np.array(Y, dtype='float32')
+    print(len(X))
+    np.save('/home/user/Desktop/datasets/translation_en_de_anki_x.npy', X)
+    np.save('/home/user/Desktop/datasets/translation_en_de_anki_y.npy', Y)
+
+#preprocess_anki()
+#sentence_pairs += validation_sentences[:3] * 100
 
 #print('len', len(sentence_pairs))
 tokens_en = {}
 for i in sentence_pairs:
     #tokens_en[i[0]] = 1
     for j in i[0].split(' '):
+        tokens_en[j] = 1
+    for j in i[1].split(' '):
         tokens_en[j] = 1
 #for key in tokens_en:
     #print(key)
@@ -581,6 +699,9 @@ for i in range(len(sentence_pairs)):
     sentence_pairs[i] = list(sentence_pairs[i])
     sentence_pairs[i][0] = '$ ' + sentence_pairs[i][0] + ' $'
     sentence_pairs[i][1] = '$ ' + sentence_pairs[i][1] + ' $'
-for i in range(len(validation_sentences)):
+#for i in range(len(validation_sentences)):
     res = list(validation_sentences[i])
-    validation_sentences[i] = (res[0] + ' ', res[1] + ' ')
+    if len(res[0].split(' ')) == 0:
+        validation_sentences[i] = (res[0] + ' ' + res[0] + ' ' + res[0] + ' ', res[1] + ' ' + res[1] + ' ' + res[1] + ' ')
+    else:
+        validation_sentences[i] = (res[0] + ' ', res[1] + ' ')

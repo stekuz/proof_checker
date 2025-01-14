@@ -34,8 +34,8 @@ data_X = []
 data_Y = []
 alphabet = ''
 
-for i in data_raw:
-    alphabet += i
+for i in data_train:
+    alphabet += i['answer']
 alphabet = ''.join(sorted(list(set(alphabet))))
 
 
@@ -210,6 +210,13 @@ class FeedForwardLayer:
         dW1 = tf.linalg.matmul(tf.transpose(X), dZ1) / m 
         db1 = tf.math.reduce_sum(dZ1, axis=0, keepdims=True) / m 
 
+        mnval = -1
+        mxval = 1
+        dW1 = tf.clip_by_value(dW1, mnval, mxval)
+        db1 = tf.clip_by_value(db1, mnval, mxval)
+        dW2 = tf.clip_by_value(dW2, mnval, mxval)
+        db2 = tf.clip_by_value(db2, mnval, mxval)
+
         def optimize():
             return self.optimizer.update({
                 'W1': self.W1,
@@ -262,6 +269,7 @@ class ChaosTransformLayer:
         self.dense_combinator = FeedForwardLayer(input_size=self.total_input * hidden_size, hidden_size=self.total_input * hidden_size, output_size=output_size, index='sscomb' + str(index), learning_rate=learning_rate)
         #self.chaos_0 = np.random.rand(2, 2)
         self.chaos_10_9 = np.array([[10, 9], [1, 1]], dtype='float32')
+        #self.chaos_10_9 = np.array([[1, 0], [0, 1]], dtype='float32')
         self.chaos_2_1 = np.array([[2, 1], [1, 1]], dtype='float32')
         self.mat_1 = np.array([[1, 0], [0, 1]], dtype='float32')
         self.chaos_1 = []
@@ -644,11 +652,11 @@ def train_model_symbols():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    elif 0:
+    elif 1:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
-        content = 'Adam bougth 6 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*6=<<2*6=12>>$12 in total\n#### 12'
+        content = 'Adam bougth 3 apples with the price of $7 per apple. How many dollars Adam spent on apples in total? Adam spent $7*3=<<7*3=21>>$21 in total\n#### 21'
         X = [[]]
         for i in range(len(content)):
             X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
@@ -669,7 +677,7 @@ def train_model_symbols():
         to_change = list(set(to_change))
         for i in range(samples_selected):
             X.append(copy.deepcopy(X[0]))
-            change_num = random.randint(1, 10)
+            change_num = random.randint(1, 5)
             change_from = []
             change_to = []
             for k in range(change_num):
@@ -678,7 +686,7 @@ def train_model_symbols():
             for k in range(change_num):
                 change_to.append(str(random.randint(0, 9)))
                 for k2 in range(1):
-                    if random.randint(0, 9) < 3:
+                    if random.randint(0, 9) < 2:
                         change_to[k] += str(random.randint(0, 9))
             X_add = []
             for j in range(len(X[-1])):
@@ -698,7 +706,7 @@ def train_model_symbols():
             X[-1] = copy.deepcopy(X_add)
         for i in range(samples_selected + 1):
             X.append(copy.deepcopy(X[i]))
-            threshold = 0.3
+            threshold = 0.12
             for j in range(len(X[0])):
                 index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
@@ -706,6 +714,13 @@ def train_model_symbols():
                         X[-1][j][1] = alphabet.find('0123456789'[random.randint(0,9)]) / (len(alphabet) + 1)
         Y = [[1]] * (samples_selected + 1) + [[0]] * (samples_selected + 1)
         X = np.array(X, dtype='float32')
+        for i in range(len(X)):
+            res = ''
+            for j in range(len(X[i])):
+                index = round(X[i][j][1] * (len(alphabet) + 1))
+                if index < len(alphabet):
+                    res += alphabet[index]
+            print(res)
         Y = np.array(Y, dtype='float32')
     elif 1:
         samples_selected = 10000
@@ -739,6 +754,8 @@ def train_model_symbols():
     filepath = './custom_models_2/test_model'
     loss_graph_x = []
     loss_graph_y = []
+    accuracy_graph_x = []
+    accuracy_graph_y = []
     def trainint_loop(epoch):
         start_time = time.time()
         Y_pred_chaos = chaostranform1.forward(X, double_matrix=0)
@@ -754,49 +771,60 @@ def train_model_symbols():
         dA2 = dense_middle1.backward(Y_pred_chaos, Y_pred_middle1, dA2)
         dA2 = chaostranform1.backward(X, Y_pred_chaos, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        chaostranform1.save_model(filepath)
-        dense_middle1.save_model(filepath)
-        dense_middle2.save_model(filepath)
-        dense_middle3.save_model(filepath)
-        dense_output.save_model(filepath)
+        if epoch%100==0 or loss < 0.1 or accuracy > 0.88:
+            chaostranform1.save_model(filepath)
+            dense_middle1.save_model(filepath)
+            dense_middle2.save_model(filepath)
+            dense_middle3.save_model(filepath)
+            dense_output.save_model(filepath)
         loss_graph_x.append(epoch)
         loss_graph_y.append(loss)
+        accuracy_graph_x.append(epoch)
+        accuracy_graph_y.append(accuracy)
         return (loss, accuracy)
 
     for epoch in range(1,10001):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.16 or accuracy > 0.98:
+        if loss < 0.1 or accuracy > 0.88:
             break
-    plt.plot(loss_graph_x, loss_graph_y)
+    figure, axis = plt.subplots(1, 2)
+    axis[0].plot(loss_graph_x, loss_graph_y)
+    axis[0].set_title('loss')
+    axis[1].plot(accuracy_graph_x, accuracy_graph_y)
+    axis[1].set_title('accuracy')
     plt.show()
 
 content = {"question": "Natalia sold clips to 54 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
            "answer": "Natalia sold 54/2 = <<54/2=27>>27 clips in May.\nNatalia sold 54+27 = <<54+27=81>>81 clips altogether in April and May.\n#### 81"}
 content = content['question'] + content['answer']
-content = 'Adam bougth 5 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*5=<<2*5=10>>$10 in total\n#### 32'
+content = 'Adam bougth 87 apples with the price of $33 per apple. How many dollars Adam spent on apples in total? Adam spent $33*87=<<33*87=>>$12 in total\n#### 12'
+content = 'Adam bougth 88 apples with the price of $18 per apple. How many dollars Adam spent on apples in total? Adam spent $18*88=<<18*88=9968>>$9968 in total\n#### 9968'
+content = 'Adam bougth 13 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*13=<<2*13=26>>$26 in total\n#### 26'
+content = 'Adam bougth 3 apples with the price of $97 per apple. How many dollars Adam spent on apples in total? Adam spent $97*3=<<97*3=41>>$41 in total\n#### 41'
 content = list(content)
 for i in range(len(content)):
     if content[i] in '0123456789':
         if random.uniform(0,1) < 0:
             content[i] = str(random.randint(0,9))
 content = ''.join(content)
-content = 'All Cantonese don\'t like chili, so all southerners don\'t like chili.\nWhich of the following can guarantee the above argument?\nC.Some Cantonese are southerners and all southerners are Cantonese'
+#content = 'All Cantonese don\'t like chili, so all southerners don\'t like chili.\nWhich of the following can guarantee the above argument?\nC.Some Cantonese are southerners and all southerners are Cantonese'
 
 #print(content)
 
 def use_model_symbols():
     #X_full = np.load('/home/user/Desktop/datasets/checker_train_x_chaos.npy')
-    #X_full = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')
-    X_full = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')
+    X_full = np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')
+    #X_full = np.load('/home/user/Desktop/datasets/logiqa_chaos_x.npy')
     Y = np.load('/home/user/Desktop/datasets/checker_train_y.npy')
     for i in range(len(Y)):
         if Y[i][1] == 0:
             print(i)
             break
     input_shape = X_full.shape
+    input_shape = (1,1064)
     print(input_shape)
     learning_rate = 0.01
-    chaostranform1 = ChaosTransformLayer(input_shape, 100, 100, 1, learning_rate=learning_rate / 10, total_input=13)
+    chaostranform1 = ChaosTransformLayer((1,1064), 100, 100, 1, learning_rate=learning_rate / 10, total_input=13)
     dense_middle1 = FeedForwardLayer(100, 100, 100, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
@@ -855,11 +883,11 @@ def train_model_symbols_simple():
         for i in range(len(Y_full)):
             Y.append([Y_full[i][1]])
         Y = np.array(Y, dtype='float32')
-    elif 0:
+    elif 1:
         samples_selected = 100
         X = np.concatenate((np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[:samples_selected], np.load('/home/user/Desktop/datasets/gsm8k_train_chaos_x.npy')[x_len:x_len + samples_selected]), axis=0)
         shape = X[0].shape
-        content = 'Adam bougth 6 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*6=<<2*6=12>>$12 in total\n#### 12'
+        content = 'Adam bougth 3 apples with the price of $7 per apple. How many dollars Adam spent on apples in total? Adam spent $7*3=<<7*3=21>>$21 in total\n#### 21'
         X = [[]]
         for i in range(len(content)):
             X[0].append([1, alphabet.find(content[i]) / (len(alphabet) + 1)])
@@ -880,7 +908,7 @@ def train_model_symbols_simple():
         to_change = list(set(to_change))
         for i in range(samples_selected):
             X.append(copy.deepcopy(X[0]))
-            change_num = random.randint(1, 10)
+            change_num = random.randint(1, 3)
             change_from = []
             change_to = []
             for k in range(change_num):
@@ -909,7 +937,7 @@ def train_model_symbols_simple():
             X[-1] = copy.deepcopy(X_add)
         for i in range(samples_selected + 1):
             X.append(copy.deepcopy(X[i]))
-            threshold = 0.3
+            threshold = 0.15
             for j in range(len(X[0])):
                 index = round(X[-1][j][1] * (len(alphabet) + 1))
                 if index < len(alphabet):
@@ -944,8 +972,8 @@ def train_model_symbols_simple():
         print('now')
     hidden_size = 100
     learning_rate = 0.001
-    dense_input = FeedForwardLayer(X.shape[1], hidden_size, hidden_size, 0, learning_rate=learning_rate)
-    dense_middle1 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 1, learning_rate=learning_rate)
+    dense_input = FeedForwardLayer(X.shape[1], hidden_size * 10, hidden_size * 10, 0, learning_rate=learning_rate)
+    dense_middle1 = FeedForwardLayer(hidden_size * 10, hidden_size * 10, hidden_size, 1, learning_rate=learning_rate)
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_middle4 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 4, learning_rate=learning_rate)
@@ -972,17 +1000,18 @@ def train_model_symbols_simple():
         dA2 = dense_middle1.backward(Y_pred_input, Y_pred_middle1, dA2)
         _ = dense_input.backward(X, Y_pred_input, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        dense_input.save_model('./custom_models/test_model_simple')
-        dense_middle1.save_model('./custom_models/test_model_simple')
-        dense_middle2.save_model('./custom_models/test_model_simple')
-        dense_middle3.save_model('./custom_models/test_model_simple')
-        dense_middle4.save_model('./custom_models/test_model_simple')
-        dense_output.save_model('./custom_models/test_model_simple')
+        if epoch % 100 == 0:
+            dense_input.save_model('./custom_models/test_model_simple')
+            dense_middle1.save_model('./custom_models/test_model_simple')
+            dense_middle2.save_model('./custom_models/test_model_simple')
+            dense_middle3.save_model('./custom_models/test_model_simple')
+            dense_middle4.save_model('./custom_models/test_model_simple')
+            dense_output.save_model('./custom_models/test_model_simple')
         loss_graph_x.append(epoch)
         loss_graph_y.append(loss)
         return (loss, accuracy)
 
-    for epoch in range(1,501):
+    for epoch in range(1,10001):
         loss, accuracy = trainint_loop(epoch)
         if loss < 0.05 or accuracy > 0.95:
             break
@@ -1059,7 +1088,7 @@ if 0:
     #train_model_symbols_simple()
 elif 1:
     use_model_symbols()
-    use_model_symbols_simple()
+    #use_model_symbols_simple()
 #train_model_symbols_keras()
 #use_model_symbols_keras()
 

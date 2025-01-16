@@ -95,6 +95,7 @@ class AdamOptimizer:
 class SGD:
     def __init__(self, learning_rate=0.001):
         self.learning_rate = learning_rate
+        self.t = 0
 
     def initialize(self, params):
         return
@@ -152,16 +153,21 @@ class ScaledDotProductAttention:
         return output, attention_weights
 
 class FeedForwardLayer:
-    def __init__(self, input_size, hidden_size, output_size, index, learning_rate=0.001, dropout=0):
+    def __init__(self, input_size, hidden_size, output_size, index, learning_rate=0.001, dropout=0, sparse_rate=0.5):
         def xavier_initialization(shape):
             return tf.random.uniform(shape, minval=-np.sqrt(6 / (shape[0] + shape[1])), maxval=np.sqrt(6 / (shape[0] + shape[1])), dtype='float32')
         self.W1 = xavier_initialization((input_size, hidden_size))
         self.b1 = tf.zeros((1, hidden_size), dtype='float32')
         self.W2 = xavier_initialization((hidden_size, output_size))
         self.b2 = tf.zeros((1, output_size), dtype='float32')
+        self.sparsification_matrix_1 = xavier_initialization((input_size, input_size))
+        self.sparsification_matrix_2 = xavier_initialization((hidden_size, hidden_size))
         self.index = index
         self.learning_rate = learning_rate
         self.dropout = dropout
+        self.sparse_rate = sparse_rate
+        self.sparse_template_1 = tf.cast(tf.random.uniform(self.W1.shape) >= self.sparse_rate, dtype='float32')
+        self.sparse_template_2 = tf.cast(tf.random.uniform(self.W2.shape) >= self.sparse_rate, dtype='float32')
         self.attention_layer = ScaledDotProductAttention()
         self.optimizer = AdamOptimizer(learning_rate=learning_rate, epsilon=1e-7)
         #self.optimizer = SGD(learning_rate=learning_rate)
@@ -173,7 +179,13 @@ class FeedForwardLayer:
             'b2': self.b2,
         })
 
-    def forward(self, X, output=0, attention=0):
+    def forward(self, X, output=0, attention=0, sparse_gate=1):
+        #self.W1 = self.W1 * tf.cast(abs(self.W1) > 0.1, dtype='float32')
+        #self.W2 = self.W2 * tf.cast(abs(self.W2) > 0.1, dtype='float32')
+        #print(self.W2)
+        if output:
+            self.W1 = tf.linalg.matmul(self.sparsification_matrix_1, self.W1)
+            self.W2 = tf.linalg.matmul(self.sparsification_matrix_2, self.W2)
         self.Z1 = tf.linalg.matmul(X, self.W1) + self.b1
         self.A1 = tf.nn.relu(self.Z1)
         if attention:
@@ -185,9 +197,10 @@ class FeedForwardLayer:
         #self.learning_rate = max(self.learning_rate, 0.00001)
         dropout_mask = tf.cast(tf.random.uniform(self.Z2.shape) >= self.dropout, dtype='float32')
         if output:
-            return dropout_mask * tf.nn.sigmoid(self.Z2)
+            self.A2 = dropout_mask * tf.nn.sigmoid(self.Z2)
         else:
-            return dropout_mask * tf.nn.relu(self.Z2)
+            self.A2 = dropout_mask * tf.nn.relu(self.Z2)
+        return self.A2
 
     def compute_loss(self, Y_pred, Y_true):
         return tf.reduce_mean(abs(Y_true - Y_pred))
@@ -196,22 +209,44 @@ class FeedForwardLayer:
         Y_pred_classes = tf.round(Y_pred)
         return tf.reduce_mean(tf.cast(tf.equal(Y_true, Y_pred_classes), dtype='float32'))
 
-    def backward(self, X, A2, dA2, output=0):
+    def backward(self, X, A2, dA2, output=0, sparse_gate=1):
+        mnval = -0.1
+        mxval = 0.1
+        if output:
+            B_s1 = self.W1 * self.sparse_template_1
+            dWBs1 = tf.linalg.matmul(self.W1, tf.transpose(self.W1 - B_s1))
+            tf.clip_by_value(dWBs1, mnval, mxval)
+            self.sparsification_matrix_1 += dWBs1 * self.learning_rate / (self.optimizer.t + 1)
+            tf.clip_by_value(self.sparsification_matrix_1, mnval, mxval)
+            if math.isnan(self.sparsification_matrix_1[0][0]):
+                print(self.index, self.sparsification_matrix_1, B_s1, self.W1)
+                return 1/0
+            
+            B_s2 = self.W2 * self.sparse_template_2
+            dWBs2 = tf.linalg.matmul(self.W2, tf.transpose(self.W2 - B_s2))
+            tf.clip_by_value(dWBs2, mnval, mxval)
+            self.sparsification_matrix_2 += dWBs2 * self.learning_rate / (self.optimizer.t + 1)
+            tf.clip_by_value(self.sparsification_matrix_2, mnval, mxval)
+
         m = dA2.shape[0] 
         if output:
             dZ2 = dA2 * (tf.nn.sigmoid(A2) * (1 - tf.nn.sigmoid(A2)))
         else:
             dZ2 = dA2 * tf.cast(A2 > 0, dtype='float32')
-        dW2 = tf.linalg.matmul(tf.transpose(self.A1), dZ2) / m
+        if output:
+            dW2 = tf.linalg.matmul(dWBs2, tf.linalg.matmul(tf.transpose(self.A1), dZ2)) / m
+        else:
+            dW2 = tf.linalg.matmul(tf.transpose(self.A1), dZ2) / m
         db2 = tf.math.reduce_sum(dZ2, axis=0, keepdims=True) / m 
-
+            
         dA1 = tf.linalg.matmul(dZ2, tf.transpose(self.W2))
         dZ1 = dA1 * tf.cast(self.A1 > 0, dtype='float32')
-        dW1 = tf.linalg.matmul(tf.transpose(X), dZ1) / m 
+        if output:
+            dW1 = tf.linalg.matmul(dWBs2, tf.linalg.matmul(tf.transpose(X), dZ1)) / m 
+        else:
+            dW1 = tf.linalg.matmul(tf.transpose(X), dZ1) / m 
         db1 = tf.math.reduce_sum(dZ1, axis=0, keepdims=True) / m 
 
-        mnval = -1
-        mxval = 1
         dW1 = tf.clip_by_value(dW1, mnval, mxval)
         db1 = tf.clip_by_value(db1, mnval, mxval)
         dW2 = tf.clip_by_value(dW2, mnval, mxval)
@@ -235,6 +270,8 @@ class FeedForwardLayer:
         self.b1 = new_params['b1']
         self.W2 = new_params['W2']
         self.b2 = new_params['b2']
+        if output:
+            print('W1 after', self.W1)
 
         return dA1
     
@@ -244,6 +281,10 @@ class FeedForwardLayer:
         np.save(filepath + 'dense' + str(self.index) + 'W2.npy', self.W2)
         np.save(filepath + 'dense' + str(self.index) + 'b2.npy', self.b2)
         np.save(filepath + 'dense' + str(self.index) + 'adam.npy', np.array([self.optimizer.t], dtype='int32'))
+        np.save(filepath + 'dense' + str(self.index) + 'sparse_mat1.npy', self.sparsification_matrix_1)
+        np.save(filepath + 'dense' + str(self.index) + 'sparse_mat2.npy', self.sparsification_matrix_2)
+        np.save(filepath + 'dense' + str(self.index) + 'sparse_temp1.npy', self.sparse_template_1)
+        np.save(filepath + 'dense' + str(self.index) + 'sparse_temp2.npy', self.sparse_template_1)
     
     def load_model(self, filepath):
         self.W1 = np.load(filepath + 'dense' + str(self.index) + 'W1.npy')
@@ -257,6 +298,10 @@ class FeedForwardLayer:
             'b2': self.b2,
         })
         self.optimizer.t = np.load(filepath + 'dense' + str(self.index) + 'adam.npy')[0]
+        self.sparsification_matrix_1 = np.load(filepath + 'dense' + str(self.index) + 'sparse_mat1.npy')
+        self.sparsification_matrix_2 = np.load(filepath + 'dense' + str(self.index) + 'sparse_mat2.npy')
+        self.sparse_template_1 = np.load(filepath + 'dense' + str(self.index) + 'sparse_temp1.npy')
+        self.sparse_template_2 = np.load(filepath + 'dense' + str(self.index) + 'sparse_temp2.npy')
 
 class ChaosTransformLayer:
     def __init__(self, input_shape, hidden_size, output_size, index, learning_rate=0.001, total_input=10):
@@ -751,7 +796,7 @@ def train_model_symbols():
     dense_middle2 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 4, learning_rate=learning_rate, dropout=0)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     loss_graph_x = []
     loss_graph_y = []
     accuracy_graph_x = []
@@ -771,7 +816,7 @@ def train_model_symbols():
         dA2 = dense_middle1.backward(Y_pred_chaos, Y_pred_middle1, dA2)
         dA2 = chaostranform1.backward(X, Y_pred_chaos, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
-        if epoch%100==0 or loss < 0.1 or accuracy > 0.88:
+        if epoch%100==0 or loss < 0.17 or accuracy > 0.88:
             chaostranform1.save_model(filepath)
             dense_middle1.save_model(filepath)
             dense_middle2.save_model(filepath)
@@ -785,7 +830,7 @@ def train_model_symbols():
 
     for epoch in range(1,10001):
         loss, accuracy = trainint_loop(epoch)
-        if loss < 0.1 or accuracy > 0.88:
+        if loss < 0.17 or accuracy > 0.88:
             break
     figure, axis = plt.subplots(1, 2)
     axis[0].plot(loss_graph_x, loss_graph_y)
@@ -799,8 +844,8 @@ content = {"question": "Natalia sold clips to 54 of her friends in April, and th
 content = content['question'] + content['answer']
 content = 'Adam bougth 87 apples with the price of $33 per apple. How many dollars Adam spent on apples in total? Adam spent $33*87=<<33*87=>>$12 in total\n#### 12'
 content = 'Adam bougth 88 apples with the price of $18 per apple. How many dollars Adam spent on apples in total? Adam spent $18*88=<<18*88=9968>>$9968 in total\n#### 9968'
-content = 'Adam bougth 13 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*13=<<2*13=26>>$26 in total\n#### 26'
-content = 'Adam bougth 3 apples with the price of $97 per apple. How many dollars Adam spent on apples in total? Adam spent $97*3=<<97*3=41>>$41 in total\n#### 41'
+#content = 'Adam bougth 3 apples with the price of $2 per apple. How many dollars Adam spent on apples in total? Adam spent $2*3=<<2*3=61>>$61 in total\n#### 61'
+content = 'Adam bougth 68 apples with the price of $48 per apple. How many dollars Adam spent on apples in total? Adam spent $48*68=<<48*68=31>>$32 in total\n#### 32'
 content = list(content)
 for i in range(len(content)):
     if content[i] in '0123456789':
@@ -821,7 +866,6 @@ def use_model_symbols():
             print(i)
             break
     input_shape = X_full.shape
-    input_shape = (1,1064)
     print(input_shape)
     learning_rate = 0.01
     chaostranform1 = ChaosTransformLayer((1,1064), 100, 100, 1, learning_rate=learning_rate / 10, total_input=13)
@@ -829,7 +873,7 @@ def use_model_symbols():
     dense_middle2 = FeedForwardLayer(100, 100, 100, 2, learning_rate=learning_rate)
     dense_middle3 = FeedForwardLayer(100, 100, 100, 3, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(100, 100, 2, 4, learning_rate=learning_rate)
-    filepath = './custom_models_2/test_model'
+    filepath = './custom_models/test_model'
     chaostranform1.load_model(filepath)
     dense_middle1.load_model(filepath)
     dense_middle2.load_model(filepath)
@@ -978,7 +1022,7 @@ def train_model_symbols_simple():
     dense_middle3 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 3, learning_rate=learning_rate)
     dense_middle4 = FeedForwardLayer(hidden_size, hidden_size, hidden_size, 4, learning_rate=learning_rate)
     dense_output = FeedForwardLayer(hidden_size, hidden_size, 1, 5, learning_rate=learning_rate, dropout=0)
-
+    filepath = './custom_models/test_model_simple'
     loss_graph_x = []
     loss_graph_y = []
     def trainint_loop(epoch):
@@ -1001,12 +1045,12 @@ def train_model_symbols_simple():
         _ = dense_input.backward(X, Y_pred_input, dA2)
         print(f'Epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
         if epoch % 100 == 0:
-            dense_input.save_model('./custom_models/test_model_simple')
-            dense_middle1.save_model('./custom_models/test_model_simple')
-            dense_middle2.save_model('./custom_models/test_model_simple')
-            dense_middle3.save_model('./custom_models/test_model_simple')
-            dense_middle4.save_model('./custom_models/test_model_simple')
-            dense_output.save_model('./custom_models/test_model_simple')
+            dense_input.save_model(filepath)
+            dense_middle1.save_model(filepath)
+            dense_middle2.save_model(filepath)
+            dense_middle3.save_model(filepath)
+            dense_middle4.save_model(filepath)
+            dense_output.save_model(filepath)
         loss_graph_x.append(epoch)
         loss_graph_y.append(loss)
         return (loss, accuracy)
@@ -1083,7 +1127,7 @@ def use_model_symbols_simple():
     Y_pred_final = dense_output.forward(Y_pred_middle4, output=1)
     print(Y_pred_final)
 
-if 0:
+if 1:
     train_model_symbols()
     #train_model_symbols_simple()
 elif 1:

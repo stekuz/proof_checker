@@ -365,7 +365,7 @@ def train_model_chaos():
     validation_y = np.load('/home/user/Desktop/datasets/imdb_train_y.npy')[samples_selected:samples_selected + validation_split]
 
     learning_rate = 0.001
-    hidden_size = 4
+    hidden_size = 10
     total_input = 13
     chaostranform1 = ChaosTransformLayer(X.shape, hidden_size, hidden_size, 1, learning_rate=learning_rate / 100, total_input=total_input)
     #hidden_size *= total_input
@@ -443,8 +443,8 @@ def train_model_simple():
         for j in range(len(validation_x[i])):
             validation_x[i][j] = validation_x[i][j][1]
     validation_x = np.array(validation_x, dtype='float32')
-    learning_rate = 0.0001
-    hidden_size = 4
+    learning_rate = 0.001
+    hidden_size = 10
     total_input = 13
     chaostranform1 = FeedForwardLayer(X.shape[1], hidden_size, hidden_size * total_input, 0, learning_rate=learning_rate)
     #hidden_size *= total_input
@@ -558,6 +558,6 @@ def train_model_keras():
 
 if 1:
     #print(mxlen)
-    #train_model_chaos()#even with only chaos_transform+output
-    #train_model_simple()
-    train_model_keras()
+    #train_model_chaos()#works even with only chaos_transform+output
+    train_model_simple()
+    #train_model_keras()

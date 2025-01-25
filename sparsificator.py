@@ -441,12 +441,12 @@ content += content
 content += content
 
 def train_custom():
-    hidden_size = 1000
+    hidden_size = 500
     X = []
     Y = []
     #content = 'Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May? Natalia sold 48/2 = <<48/2=24>>24 clips in May.\nNatalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May.\n#### 72'
     alphabet = sorted(list(set(content)))
-    for i in range(hidden_size, hidden_size + 100):
+    for i in range(hidden_size, hidden_size + hidden_size):
         now = ''
         for j in range(i - hidden_size, i):
             now += content[j]
@@ -454,14 +454,14 @@ def train_custom():
         next = alphabet.index(content[i])
         X.append(now)
         Y.append([j == next for j in range(len(alphabet))])
-    X = X[:100]
-    Y = Y[:100]
+    X = X[:hidden_size]
+    Y = Y[:hidden_size]
     X = np.array(X, dtype='float32')
     Y = np.array(Y, dtype='float32')
     input_size = X.shape[1]
     print(X.shape)
     main_network = FeedForwardLayer(input_size, input_size, Y.shape[1], index=0)
-    for i in range(10000 * 0):
+    for i in range(10000):
         A2 = main_network.forward(X, output=1)
         print(main_network.compute_loss(A2, Y), main_network.compute_accuracy(A2, Y))
         if i % 100 == 0:
@@ -470,28 +470,52 @@ def train_custom():
             main_network.save_model('./custom_models/test_model')
             break
         dA2 = main_network.backward(X, A2, A2 - Y, output=1)
-    A = main_network.W1
+    A = copy.deepcopy(main_network.W1)
     Xs = []
     nbins = 20
     Ys = []
-    for ii in range(100):
+    for ii in range(1000):
+        print(ii)
         threshold = 0.001
         sparse_rate = 0.9
+        kt = 100
         #A = tf.linalg.matmul(tf.random.uniform((hidden_size, hidden_size - 100), -0.1, 0.1),
         #                     tf.random.uniform((hidden_size - 100, hidden_size), -0.1, 0.1))
         
-        '''B = tf.linalg.matmul(tf.random.uniform((hidden_size, 100), -0.1, 0.1),
-                             tf.random.uniform((100, hidden_size), -0.1, 0.1))
+        '''B = tf.linalg.matmul(tf.random.uniform((hidden_size, 20), -0.1, 0.1),
+                             tf.random.uniform((20, hidden_size), -0.1, 0.1))
         S, u, v = tf.linalg.svd(B)
-        k = 200
+        k = 20
         B = tf.linalg.matmul(u[:, :k], tf.linalg.matmul(tf.linalg.diag(S[:k]), tf.transpose(v)[:k, :]))
         B = B.numpy()
         B = np.array(B, dtype='float64')
         B_inv = np.linalg.pinv(B)
         B_inv = tf.convert_to_tensor(B_inv, dtype='float64')
         S, u, v = tf.linalg.svd(B_inv)
-        Ys.append(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))'''
-        #continue
+        k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
+        np.save('./singular_values_b_inv.npy', S[:k])
+        np.save('./left_singular_vectors_b_inv.npy', u[:, :k])
+        np.save('./right_singular_vectors_b_inv.npy', tf.transpose(v)[:k, :])
+        B_inv = tf.linalg.matmul(u[:, :k], tf.linalg.matmul(tf.linalg.diag(S[:k]), tf.transpose(v)[:k, :]))
+        D = tf.linalg.matmul(B, tf.cast(A, dtype='float64'))
+        S, u, v = tf.linalg.svd(D)
+        np.save('./singular_values_d.npy', S[:k])
+        np.save('./left_singular_vectors_d.npy', u[:, :k])
+        np.save('./right_singular_vectors_d.npy', tf.transpose(v)[:k, :])
+        D = tf.linalg.matmul(u[:, :k], tf.linalg.matmul(tf.linalg.diag(S[:k]), tf.transpose(v)[:k, :]))
+        true_A1 = tf.linalg.matmul(X, A)
+        approx_A1 = tf.linalg.matmul(tf.cast(X, dtype='float64'), tf.linalg.matmul(B_inv, D))
+        avg = 0
+        for i in range(1000):
+            i1 = random.randint(0, len(true_A1) - 1)
+            i2 = random.randint(0, len(true_A1[0]) - 1)
+            avg += abs(float(true_A1[i1][i2]) - float(approx_A1[i1][i2]))
+        if avg / 1000 < 0.01:
+            Ys.append(round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))))
+        if len(Ys):
+            if Ys[-1] <= 2:
+                break
+        continue'''
         S, u, v = tf.linalg.svd(A)
         '''print(tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
         k = 100
@@ -517,14 +541,16 @@ def train_custom():
         #print(tf.linalg.det(S_a))# tf.linalg.det(A), tf.linalg.det(A_s))
         #print('W1 shape', A.shape)
         #print('S_a shape', S_a.shape)
-        S, u, v_m = tf.linalg.svd(S_a)
+        S, u, v = tf.linalg.svd(S_a)
         #print('for sparse_rate:')
         #print(S_9)
         #print(tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
         k_a = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
         #k_a = max(k_a, 200)
         k_a = max(k_a, hidden_size // 5)
-        M = tf.linalg.matmul(u[:, :k_a], tf.linalg.diag(S[:k_a]))
+        k_a = 300
+        M = tf.linalg.matmul(u[:, :k_a], tf.linalg.matmul(tf.linalg.diag(S[:k_a]), tf.transpose(v)[:k_a, :]))
+        M = tf.linalg.matmul(u[: ,:k_a], tf.linalg.diag(S[:k_a]))
         #true_A1 = A_s
         #approx_A1 = tf.linalg.matmul(tf.linalg.matmul(M, tf.transpose(v_m)[:k_a, :]), A)
         '''Xs = []
@@ -540,12 +566,18 @@ def train_custom():
         M_s = M * tf.cast(tf.random.uniform(M.shape) > sparse_rate, dtype='float32')
         #print(tf.linalg.matmul(M, tf.transpose(M)))
         S_m = tf.linalg.matmul(M_s, tf.linalg.matmul(tf.transpose(M), tf.linalg.inv(tf.linalg.matmul(M, tf.transpose(M)))))
+        B = tf.linalg.matmul(tf.linalg.matmul(S_m, S_a), A)
+        S, u, v = tf.linalg.svd(B)
+        print(S)
+        #print(tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
         #print('S_m shape', S_m.shape)
         S, u, v_b = tf.linalg.svd(tf.linalg.matmul(S_m, S_a))
-        #print('prod svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
+        print(S)
+        print('prod svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
+        return 1
         k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
         k = max(k_a, hidden_size // 50)
-        k = 10
+        k = kt
         B = tf.linalg.matmul(u[:, :k], tf.linalg.diag(S[:k]))
         #true_Am = tf.linalg.matmul(X, tf.linalg.matmul(tf.linalg.matmul(S_m, S_a), A))
         #approx_Am = tf.linalg.matmul(X, tf.linalg.matmul(tf.linalg.matmul(M, tf.transpose(v_a)[:k_a, :]), 
@@ -553,19 +585,29 @@ def train_custom():
         #approx_Am = tf.linalg.matmul(X, tf.linalg.matmul(tf.linalg.matmul(B, tf.transpose(v_b)[:k, :]), A))
         U = tf.linalg.matmul(B, tf.transpose(v_b)[:k, :])
         U = tf.cast(U, dtype='float64')
-        #U_f = tf.linalg.matmul(U, tf.cast(A, dtype='float64'))
-        #U_f = tf.cast(U_f, dtype='float64')
-        #S, u, v = tf.linalg.svd(U_f)
-        #print('U_f svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
+        U_f = tf.linalg.matmul(U, tf.cast(A, dtype='float64'))
+        U_f = tf.cast(U_f, dtype='float64')
+        before = U_f
+        S, u, v = tf.linalg.svd(U_f)
+        print('U_f svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
+        k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
+        k = kt
+        U_f = tf.linalg.matmul(tf.linalg.matmul(u[:, :k], tf.linalg.diag(S[:k])), tf.transpose(v)[:k, :])
+        print(tf.reduce_sum(abs(U_f - before)))
         S, u, v_u = tf.linalg.svd(U)
         U = U.numpy()
         U = np.array(U, dtype='float64')
         U_inv = np.linalg.pinv(U)
         U_inv = tf.convert_to_tensor(U_inv, dtype='float64')
-        S, u, v_u = tf.linalg.svd(U_inv)
+        S, u, v = tf.linalg.svd(U_inv)
+        print(U_inv)
         #print('U_inv svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
-        Ys.append(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
-        continue
+        k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
+        k = kt
+        Ys.append(k)
+        U_inv = tf.linalg.matmul(tf.linalg.matmul(u[:, :k], tf.linalg.diag(S[:k])), tf.transpose(v)[:k, :])
+        print(Ys[-1])
+        #continue
         U = tf.convert_to_tensor(U, dtype='float64')
         D = tf.linalg.matmul(U_inv, U_f)
         #print(tf.linalg.matmul(U_inv, U))
@@ -573,28 +615,28 @@ def train_custom():
         S = tf.cast(S, dtype='float64')
         u = tf.cast(u, dtype='float64')
         print('D svd', tf.math.reduce_max(S), tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32')))
-        k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
-        k = max(k, hidden_size // 4)
-        D_a = tf.linalg.matmul(u[:, :k], tf.linalg.diag(S[:k]))
-        D_a = tf.cast(D_a, dtype='float64')
-        v_d = tf.cast(v_d, dtype='float64')
+        #k = round(float(tf.reduce_sum(tf.cast(S / tf.math.reduce_max(S) > threshold, dtype='float32'))))
+        #k = max(k, hidden_size // 4)
+        #D_a = tf.linalg.matmul(u[:, :k], tf.linalg.diag(S[:k]))
+        #D_a = tf.cast(D_a, dtype='float64')
+        #v_d = tf.cast(v_d, dtype='float64')
         #true_Am = tf.linalg.matmul(X, A)
         #approx_Am = tf.linalg.matmul(tf.cast(X, dtype='float64'), tf.linalg.matmul(D_a, tf.transpose(v_d)[:k, :]))
-
-        '''true_Am = A
-        approx_Am = D
+        true_Am = tf.linalg.matmul(X, A)
+        approx_Am = tf.linalg.matmul(tf.cast(X, dtype='float64'), D)
         Xs = []
         Ys = []
         avg = 0
-        for i in range(10000):
+        for i in range(1000):
             i1 = random.randint(0, len(true_Am) - 1)
             i2 = random.randint(0, len(true_Am[0]) - 1)
             avg += abs(float(true_Am[i1][i2]) - float(approx_Am[i1][i2]))
             Xs.append(float(true_Am[i1][i2]))
             Ys.append(float(approx_Am[i1][i2]))
-        print('avg', avg / 10000)
+        print('avg', avg / 1000)
         plt.plot(Xs, Ys, 'ro', markersize=0.2)
-        plt.show()'''
+        plt.show()
+    print('min', min(Ys))
     plt.hist(Ys, bins=nbins)
     plt.show()
     return 1
@@ -621,6 +663,35 @@ def train_custom():
         dA2 = middle_network.backward(X, A2, A2 - Y, output=1)
 
 train_custom()
+
+def use_custom():
+    hidden_size = 500
+    ff = FeedForwardLayer(1, 1, 1, 0)
+    ff.load_model('./custom_models/test_model')
+    X = []
+    Y = []
+    alphabet = sorted(list(set(content)))
+    for i in range(hidden_size, hidden_size + hidden_size):
+        now = ''
+        for j in range(i - hidden_size, i):
+            now += content[j]
+        now = [alphabet.index(now[j]) / len(alphabet) for j in range(hidden_size)]
+        next = alphabet.index(content[i])
+        X.append(now)
+        Y.append([j == next for j in range(len(alphabet))])
+    X = X[:hidden_size]
+    Y = Y[:hidden_size]
+    X = np.array(X, dtype='float32')
+    Y = np.array(Y, dtype='float32')
+    print(len(np.load('singular_values_d.npy')))
+    d = tf.linalg.matmul(np.load('./left_singular_vectors_d.npy'), tf.linalg.matmul(tf.linalg.diag(np.load('singular_values_d.npy')), np.load('right_singular_vectors_d.npy')))
+    b_inv = tf.linalg.matmul(np.load('./left_singular_vectors_b_inv.npy'), tf.linalg.matmul(tf.linalg.diag(np.load('singular_values_b_inv.npy')), np.load('right_singular_vectors_b_inv.npy')))
+    ff.W1 = tf.linalg.matmul(b_inv, d)
+    ff.W1 = tf.cast(ff.W1, dtype='float32')
+    A2 = ff.forward(X, output=1)
+    print(ff.compute_loss(A2, Y), ff.compute_accuracy(A2, Y))
+
+#use_custom()
 
 def use():
     ff = FeedForwardLayerWithMiddle(1, 1, 1, 1)

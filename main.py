@@ -270,8 +270,6 @@ class FeedForwardLayer:
         self.b1 = new_params['b1']
         self.W2 = new_params['W2']
         self.b2 = new_params['b2']
-        if output:
-            print('W1 after', self.W1)
 
         return dA1
     

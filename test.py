@@ -1,6 +1,9 @@
-from datasets import load_dataset
+#from datasets import load_dataset
 import numpy as np
 import csv
+from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+import tensorflow as tf
+import time
 
 special_chars = ['„', '”', "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", 
     ":", ";", "<", "=", ">", "?", "@", "[", "\\", "]", "^", "_", "`", "{", "|", "}", "~",
@@ -232,5 +235,234 @@ def prepare_sequences_variable_length(data_train, vocab_size):
 #                     '/home/user/Desktop/datasets/translation_en_de_train_wmt_x.npy',
 #                     '/home/user/Desktop/datasets/translation_en_de_train_wmt_y.npy')
 
-Y = np.load('/home/user/Desktop/datasets/translation_en_de_train_wmt_y.npy', allow_pickle=True)
-print(len(Y))
+'''tokenizer = Tokenizer(models.BPE())
+tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+trainer = trainers.BpeTrainer(vocab_size=32000, special_tokens=special_chars)
+tokenizer.train(files=['/home/user/Desktop/datasets/wmt14_translate_de-en_train.csv'], trainer=trainer)
+tokenizer.save("tokenizer.json")'''
+'''
+import numpy as np
+from datasets import load_dataset
+from tokenizers import Tokenizer, models, trainers, pre_tokenizers
+from tqdm import tqdm
+import os
+
+
+# Step 1: Load the full WMT24 English-German translation dataset
+print("Loading dataset...")
+dataset = load_dataset("wmt19", "de-en")
+
+# Step 2: Train a tokenizer with a vocabulary limited to 10,000 tokens
+def train_tokenizer(dataset, vocab_size=10000, save_path="./tokenizer.json"):
+    print("Training tokenizer...")
+    # Initialize a BPE tokenizer
+    tokenizer = Tokenizer(models.BPE())
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+
+    # Define a trainer
+    trainer = trainers.BpeTrainer(
+        vocab_size=vocab_size,
+        special_tokens=["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
+    )
+
+    # Prepare the text data for training
+    texts = []
+    for split in dataset:
+        for example in dataset[split]:
+            example = example['translation']
+            texts.append(example["en"])
+            texts.append(example["de"])
+
+    # Train the tokenizer
+    tokenizer.train_from_iterator(texts, trainer=trainer)
+
+    # Save the tokenizer
+    tokenizer.save(save_path)
+    print(f"Tokenizer saved to {save_path}")
+    return tokenizer
+
+# Train and save the tokenizer
+tokenizer = train_tokenizer(dataset)
+
+# Step 3: Partition the dataset into chunks of 10,000 sentence pairs
+def partition_dataset(dataset, chunk_size=10000):
+    print("Partitioning dataset...")
+    chunks = []
+    current_chunk = []
+    for split in dataset:
+        for example in dataset[split]:
+            current_chunk.append((example["en"], example["de"]))
+            if len(current_chunk) == chunk_size:
+                chunks.append(current_chunk)
+                current_chunk = []
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
+
+chunks = partition_dataset(dataset)
+
+# Step 4: Tokenize each sentence pair and write to numpy arrays
+def tokenize_and_save_chunks(chunks, tokenizer, filepath):
+    print("Tokenizing and saving chunks...")
+    os.makedirs(filepath, exist_ok=True)
+    all_tokens = tokenizer.get_vocab_size()
+
+    for chunk_number, chunk in enumerate(tqdm(chunks)):
+        X = np.empty((len(chunk), 2), dtype=object)
+        Y = np.empty((len(chunk), 2), dtype=object)
+
+        for i, (en_text, de_text) in enumerate(chunk):
+            # Tokenize English text
+            en_tokens = tokenizer.encode(en_text).ids
+            en_token_number = en_tokens[0] if en_tokens else 0
+            X[i] = [1, en_token_number / (all_tokens + 1)]
+
+            # Tokenize German text
+            de_tokens = tokenizer.encode(de_text).ids
+            de_token_number = de_tokens[0] if de_tokens else 0
+            Y[i] = [1, de_token_number / (all_tokens + 1)]
+
+        # Save X and Y to files
+        np.save(os.path.join(filepath, f"{chunk_number}X.npy"), X)
+        np.save(os.path.join(filepath, f"{chunk_number}Y.npy"), Y)
+
+# Save chunks to files
+#filepath = "./chunks/"
+#tokenize_and_save_chunks(chunks, tokenizer, filepath)
+
+#print("Processing complete!")'''
+
+def f():
+    global mxlen
+    samples_selected = 1000
+    X = np.load('/home/user/Desktop/datasets/translation_en_de_train_wmt_x.npy', allow_pickle=True)[:samples_selected]
+    #X = np.load('/home/user/Desktop/datasets/translation_en_de_train_common_seq2seq_x.npy')
+    print(len(X))
+    #Y = np.load('/home/user/Desktop/datasets/translation_en_de_train_common_seq2seq_y.npy')
+    Y = np.load('/home/user/Desktop/datasets/translation_en_de_train_wmt_y.npy', allow_pickle=True)[:samples_selected]
+    print(X.shape, Y.shape, mxlen)
+    learning_rate = 0.001
+    hidden_size = 100
+    total_input = 2
+    batch_size = 256
+    X = X.tolist()
+    batches_x = [X[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    lastlen = len(batches_x[-1])
+    for i in range(batch_size - lastlen):
+        batches_x[-1].append(batches_x[-1][-1])
+    for i in range(len(batches_x)):
+        batches_x[i] = np.array(batches_x[i], dtype=object)
+    Y = Y.tolist()
+    batches_y = [Y[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    lastlen = len(batches_y[-1])
+    for i in range(batch_size - lastlen):
+        batches_y[-1].append(batches_y[-1][-1])
+    for i in range(len(batches_y)):
+        batches_y[i] = np.array(batches_y[i], dtype=object)
+    filepath = './custom_models_2/test_model'
+    loss_graph_x = []
+    loss_graph_y = []
+    accuracy_graph_x = []
+    accuracy_graph_y = []
+    avg_loss = [0 for i in range(100)]
+    avg_accuracy = [0 for i in range(100)]
+    threshold_loss = 0
+    mxlen = int(open('./mxlen.txt', 'r').readline())
+    sequence_order_padding = []
+    for i in range(mxlen):
+        sequence_order_padding.append([i / mxlen])
+    sequence_order_padding = tf.convert_to_tensor(sequence_order_padding, dtype='float32')
+    sequence_mxlen_padding = []
+    for i in range(mxlen):
+        sequence_mxlen_padding.append([i / mxlen, len(all_tokens) / (len(all_tokens) + 1)])
+    sequence_mxlen_padding = tf.convert_to_tensor(sequence_mxlen_padding, dtype='float32')
+    print(sequence_mxlen_padding.shape)
+    def pad_arrays(X, P):
+        padded_X = []
+        for i in range(len(X)):
+            padded_X.append(tf.concat((X[i], P[len(X[i]):]), axis=0))
+        return tf.convert_to_tensor(padded_X, dtype='float32')
+    
+    def make_categorical(Y):
+        categorical = []
+        for i in range(len(Y)):
+            categorical.append(tf.cast([k == Y[i] for k in range(len(all_tokens) + 1)], dtype='float32'))
+        return tf.convert_to_tensor(categorical, dtype='float32')
+
+    def trainint_loop(epoch):
+        start_time = time.time()
+        loss = 0
+        accuracy = 0
+        for i in range(len(batches_x)):
+            X = batches_x[i]
+            X = pad_arrays(X, sequence_mxlen_padding)
+            Y = batches_y[i]
+            Y = make_categorical(Y)
+        print(time.time() - start_time)
+    trainint_loop(1)
+
+def preprocess_mxlen_tokens():
+    global mxlen
+    global all_tokens
+    data_raw = []
+    with open('/home/user/Desktop/datasets/IMDB Dataset.csv', "r") as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader)
+        for i, row in enumerate(reader):
+            if len(row) == 2:
+                data_raw.append(row)
+            if i == 100000:
+                break
+    for row in data_raw:
+        mxlen = max(mxlen, len(tokenize_text(row[0])) + 10)
+        for token in tokenize_text(row[0]):
+            all_tokens[token] = 1
+    with open('./all_tokens_imdb.txt', 'w') as f:
+        for token in all_tokens:
+            f.write(token + '\n')
+    with open('./mxlen_imdb.txt', 'w') as f:
+        f.write(str(mxlen) + '\n')
+
+def preprocess_data_imdb(index):
+    global mxlen
+    global all_tokens
+    data_raw = []
+    data_train = []
+    with open('/home/user/Desktop/datasets/IMDB Dataset.csv', "r") as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader)
+        for i, row in enumerate(reader):
+            if len(row) == 2 and i >= 10000 * (index - 1 - int(index == 6)) and i < 10000 * index:
+                data_raw.append(row)
+    for row in data_raw:
+        data_train.append([tokenize_text(row[0]), int(row[1] == 'positive')])
+    mxlen = int(open('./mxlen_imdb.txt', 'r').readlines()[0])
+    all_tokens_list = open('./all_tokens_imdb.txt', 'r').readlines()
+    all_tokens_list = [token[:-1] for token in all_tokens_list]
+    all_tokens_list = sorted(all_tokens_list)
+    for i in range(len(all_tokens_list)):
+        all_tokens[all_tokens_list[i]] = i
+    X = []
+    Y = []
+    for data in data_train:
+        X.append([])
+        for token in data[0]:
+            X[-1].append([1, all_tokens[token] / (len(all_tokens) + 1)])
+        nowlen = len(X[-1])
+        for i in range(mxlen - nowlen):
+            X[-1].append([1, len(all_tokens) / (len(all_tokens) + 1)])
+        for i in range(mxlen):
+            X[-1][i][0] = i / mxlen
+        Y.append([1 - data[1], data[1]])
+    X = np.array(X, dtype='float32')
+    Y = np.array(Y, dtype='float32')
+    np.save(f'/home/user/Desktop/datasets/imdb_50k_x_{index - int(index == 6)}.npy', X)
+    np.save(f'/home/user/Desktop/datasets/imdb_50k_y_{index - int(index == 6)}.npy', Y)
+    print(index)
+
+#preprocess_mxlen_tokens()
+#preprocess_data_imdb(1)
+#preprocess_data_imdb(2)
+#preprocess_data_imdb(3)
+#preprocess_data_imdb(4)
+#preprocess_data_imdb(6)

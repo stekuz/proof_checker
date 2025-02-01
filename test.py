@@ -401,6 +401,26 @@ def f():
         print(time.time() - start_time)
     trainint_loop(1)
 
+import nltk
+from nltk.corpus import stopwords
+
+nltk.download('stopwords')
+
+stop_words_full = set(stopwords.words('english'))
+
+stop_words = []
+
+for word in stop_words_full:
+    text = tokenize_text(word)
+    for token in text:
+        stop_words.append(token)
+
+stop_words = sorted(list(set(stop_words)))
+
+with open('./stop_words_imdb.txt', 'w') as f:
+    for token in stop_words:
+        f.write(token + '\n')
+
 def preprocess_mxlen_tokens():
     global mxlen
     global all_tokens
@@ -414,8 +434,15 @@ def preprocess_mxlen_tokens():
             if i == 100000:
                 break
     for row in data_raw:
-        mxlen = max(mxlen, len(tokenize_text(row[0])) + 10)
-        for token in tokenize_text(row[0]):
+        tokenized_full = tokenize_text(row[0])
+        tokenized = []
+        for token in tokenized_full:
+            if not (token in stop_words):
+                tokenized.append(token)
+        if len(tokenized) >= 300:
+            continue
+        mxlen = max(mxlen, len(tokenized) + 10)
+        for token in tokenized:
             all_tokens[token] = 1
     with open('./all_tokens_imdb.txt', 'w') as f:
         for token in all_tokens:
@@ -435,7 +462,13 @@ def preprocess_data_imdb(index):
             if len(row) == 2 and i >= 10000 * (index - 1 - int(index == 6)) and i < 10000 * index:
                 data_raw.append(row)
     for row in data_raw:
-        data_train.append([tokenize_text(row[0]), int(row[1] == 'positive')])
+        tokenized_full = tokenize_text(row[0])
+        tokenized = []
+        for token in tokenized_full:
+            if not (token in stop_words):
+                tokenized.append(token)
+        if len(tokenized) < 300:
+            data_train.append([tokenized, int(row[1] == 'positive')])
     mxlen = int(open('./mxlen_imdb.txt', 'r').readlines()[0])
     all_tokens_list = open('./all_tokens_imdb.txt', 'r').readlines()
     all_tokens_list = [token[:-1] for token in all_tokens_list]
@@ -466,3 +499,39 @@ def preprocess_data_imdb(index):
 #preprocess_data_imdb(3)
 #preprocess_data_imdb(4)
 #preprocess_data_imdb(6)
+    
+def preprocess_training_batches(index):
+    mxlen = int(open('./mxlen_imdb.txt', 'r').readlines()[0])
+    all_tokens_list = open('./all_tokens_imdb.txt', 'r').readlines()
+    all_tokens_list = [token[:-1] for token in all_tokens_list]
+    all_tokens_list = sorted(all_tokens_list)
+    for i in range(len(all_tokens_list)):
+        all_tokens[all_tokens_list[i]] = i
+    X = np.load(f'/home/user/Desktop/datasets/imdb_50k_x_{index}.npy', allow_pickle=True)
+    print(len(X))
+    Y = np.load(f'/home/user/Desktop/datasets/imdb_50k_y_{index}.npy', allow_pickle=True)
+    batch_size = 300
+    X = X.tolist()
+    batches_x = [X[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    lastlen = len(batches_x[-1])
+    for i in range(batch_size - lastlen):
+        batches_x[-1].append(batches_x[-1][-1])
+    for i in range(len(batches_x)):
+        batches_x[i] = tf.convert_to_tensor(batches_x[i], dtype='float32')
+    Y = Y.tolist()
+    batches_y = [Y[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    lastlen = len(batches_y[-1])
+    for i in range(batch_size - lastlen):
+        batches_y[-1].append(batches_y[-1][-1])
+    for i in range(len(batches_y)):
+        batches_y[i] = tf.convert_to_tensor(batches_y[i], dtype='float32')
+    for i in range(len(batches_x)):
+        np.save(f'/home/user/Desktop/batches/training_batches_x_{68 + i}', batches_x[i])
+        np.save(f'/home/user/Desktop/batches/training_batches_y_{68 + i}', batches_y[i])
+    return len(batches_x)
+
+#preprocess_training_batches(1)
+#preprocess_training_batches(2)
+#preprocess_training_batches(3)
+#preprocess_training_batches(4)
+#preprocess_training_batches(5)

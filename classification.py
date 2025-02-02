@@ -822,7 +822,7 @@ def train_chaos_words_imdb():
                                                 tf.broadcast_to(tf.convert_to_tensor(int(tf.round(Y[i])), dtype='int32'), (len(all_tokens) + 1, ))), dtype='float32'))
         return tf.convert_to_tensor(categorical, dtype='float32')
 
-    def trainint_loop(epoch):
+    def training_loop(epoch):
         start_time = time.time()
         loss = 0
         accuracy = 0
@@ -903,7 +903,7 @@ def train_chaos_words_imdb():
         #print(len(tf.compat.v1.get_default_graph().get_operations()))
         print_memory_usage()
         #tf.profiler.experimental.start(logdir)
-        loss, accuracy, val_accuracy = trainint_loop(epoch)
+        loss, accuracy, val_accuracy = training_loop(epoch)
         np.empty((0,))
         gc.collect()
         #tf.keras.backend.clear_session()
@@ -919,7 +919,7 @@ def train_chaos_words_imdb():
 
 def train_simple_imdb():
     global mxlen
-    batches_selected = 50
+    batches_selected = 5
     validation_size = 500
     validation_x = np.load('/home/user/Desktop/datasets/imdb_50k_x_5.npy')[:validation_size]
     validation_y = np.load('/home/user/Desktop/datasets/imdb_50k_y_5.npy')[:validation_size]
@@ -927,7 +927,7 @@ def train_simple_imdb():
     hidden_size = 100
     batch_size = 300
     n = 4
-    num_y = 300
+    num_y = 200
     dropout = 0.5
     layers = []
     layers.append(FeedForwardLayer(mxlen, hidden_size, 0, learning_rate=learning_rate))
@@ -945,14 +945,25 @@ def train_simple_imdb():
     validation_size = {validation_size}
     ''')
 
-    def generate_Y(num_y, y_true_classes, shape):
-        y_true_classes = tf.broadcast_to(y_true_classes, shape)
+    def generate_Y(num_y, shape, Y_optimal):
+        distribution = tf.random.normal((num_y, shape[0], shape[1]), mean=0.0, stddev=0.01)
+        Y = distribution + Y_optimal
+        return Y
+    
+    for i in range(batches_selected):
+        X = np.load(f'/home/user/Desktop/batches/training_batches_x_{i}.npy', mmap_mode='r')
+        Y = np.load(f'/home/user/Desktop/batches/training_batches_y_{i}.npy', mmap_mode='r')
+        X = tf.convert_to_tensor(X, dtype='float32')
+        X = X[:, :, 1]
+        Y = tf.convert_to_tensor(Y, dtype='float32')
+        Y = Y[:, 1:]
+        shape = X.shape
+        y_true_classes = tf.cast(tf.broadcast_to(Y, shape), dtype='int32')
         mask_0 = tf.cast(tf.equal(tf.round(y_true_classes), 0), dtype='float32')
         mask_1 = tf.cast(tf.equal(tf.round(y_true_classes), 1), dtype='float32')
-        distribution_0 = tf.random.normal((num_y, shape[0], shape[1]), mean=-0.1, stddev=0.5)
-        distribution_1 = tf.random.normal((num_y, shape[0], shape[1]), mean=0.1, stddev=0.5)
-        Y = mask_0 * distribution_0 + mask_1 * distribution_1
-        return Y
+        distribution_0 = tf.random.normal((shape[0], shape[1]), mean=-0.1, stddev=0.01)
+        distribution_1 = tf.random.normal((shape[0], shape[1]), mean=0.1, stddev=0.01)
+        np.save(f'/home/user/Desktop/batches/ys_optimal_{i}.npy', mask_0 * distribution_0 + mask_1 * distribution_1)
 
     def training_epoch(epoch):
         start_time = time.time()
@@ -971,12 +982,14 @@ def train_simple_imdb():
         for i in range(batches_selected):
             X = np.load(f'/home/user/Desktop/batches/training_batches_x_{i}.npy', mmap_mode='r')
             Y = np.load(f'/home/user/Desktop/batches/training_batches_y_{i}.npy', mmap_mode='r')
+            Y_optimal = np.load(f'/home/user/Desktop/batches/ys_optimal_{i}.npy', mmap_mode='r')
             X = tf.convert_to_tensor(X, dtype='float32')
             X = X[:, :, 1]
             Y = tf.convert_to_tensor(Y, dtype='float32')
             Y = Y[:, 1:]
             Y_classes = Y
-            Y_samples = generate_Y(num_y, Y_classes, X.shape)
+            Y_samples = generate_Y(num_y, X.shape, Y_optimal)
+            Y_samples_orig = copy.deepcopy(Y_samples)
             Y_samples_shape = Y_samples.shape
             Y_samples = tf.reshape(Y_samples, (Y_samples.shape[0] * Y_samples.shape[1], Y_samples.shape[2]))
             X_tiled = tf.tile(tf.expand_dims(X, 1), [1, num_y, 1])
@@ -985,16 +998,17 @@ def train_simple_imdb():
             loss_vals = tf.reshape(loss_vals, (Y_samples_shape[0], Y_samples_shape[1]))
             loss_vals = tf.reduce_mean(loss_vals, axis=1)
             argmin_index = tf.math.argmin(loss_vals)
-            Y = Y_samples[argmin_index]
+            Y = Y_samples_orig[argmin_index]
+            np.save(f'/home/user/Desktop/batches/ys_optimal_{i}.npy', Y)
             Y_pred = [X]
-            for i in range(n):
+            for j in range(n):
                 Y_pred.append(0)
-                Y_pred[-1]= layers[i].forward(Y_pred[-2], output=int(i == n - 1))
+                Y_pred[-1]= layers[j].forward(Y_pred[-2], output=int(j == n - 1))
             loss = (loss * i + layers[0].compute_loss(Y_pred[-1], Y)) / (i + 1)
             accuracy = (accuracy * i + layers[0].compute_accuracy(Y_pred[-1], Y_classes)) / (i + 1)
             dA2 = Y_pred[-1] - Y
-            for i in range(n - 1, -1, -1):
-                dA2 = layers[i].backward(Y_pred[i], Y_pred[i + 1], dA2, output=int(i == n - 1))
+            for j in range(n - 1, -1, -1):
+                dA2 = layers[j].backward(Y_pred[j], Y_pred[j + 1], dA2, output=int(j == n - 1))
         if not (loss < threshold_loss or accuracy > 0.98):
             print(f'epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
         if (epoch % 100 < 20 or epoch % 100 == 0 or loss < threshold_loss or accuracy > 0.98 or 1) and len(validation_x) > 0:
@@ -1005,23 +1019,13 @@ def train_simple_imdb():
             Y = tf.convert_to_tensor(Y, dtype='float32')
             Y = Y[:, 1:]
             Y_classes = Y
-            Y_samples = generate_Y(num_y, Y_classes, X.shape)
-            Y_samples_shape = Y_samples.shape
-            Y_samples = tf.reshape(Y_samples, (Y_samples.shape[0] * Y_samples.shape[1], Y_samples.shape[2]))
-            X_tiled = tf.tile(tf.expand_dims(X, 1), [1, num_y, 1])
-            X_reshaped = tf.reshape(X_tiled, (X_tiled.shape[0] * X_tiled.shape[1], X_tiled.shape[2]))
-            loss_vals = batch_forward(X_reshaped, Y_samples)
-            loss_vals = tf.reshape(loss_vals, (Y_samples_shape[0], Y_samples_shape[1]))
-            loss_vals = tf.reduce_mean(loss_vals, axis=1)
-            argmin_index = tf.math.argmin(loss_vals)
-            Y = Y_samples[argmin_index]
             Y_pred = [X]
             for i in range(n):
                 Y_pred.append(0)
                 Y_pred[-1]= layers[i].forward(Y_pred[-2], output=int(i == n - 1))
-            val_loss = layers[0].compute_loss(Y_pred[-1], Y)
+            #val_loss = layers[0].compute_loss(Y_pred[-1], Y)
             val_accuracy = layers[0].compute_accuracy(Y_pred[-1], Y_classes)
-            print(f'    epoch: {epoch}, validation loss: {val_loss}, validation accuracy: {val_accuracy}')
+            print(f'    epoch: {epoch}, validation loss: {1}, validation accuracy: {val_accuracy}')
     for i in range(1, 10001):
         training_epoch(i)
 
@@ -1030,5 +1034,5 @@ def train_simple_imdb():
 if 1:
     pass
     #train_representation_chaos_imdb()
-    train_chaos_words_imdb()
-    #train_simple_imdb()
+    #train_chaos_words_imdb()
+    train_simple_imdb()

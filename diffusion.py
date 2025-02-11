@@ -14,6 +14,7 @@ import csv
 import re
 import psutil
 import gc
+import cv2
 
 sys.setrecursionlimit(100000)
 os.environ['CUDA_VISIBLE_DEVICES'] = "0"
@@ -36,6 +37,26 @@ def permute_torus(X_original, n, matrix):
     order = tf.squeeze(tf.cast(tf.round(tf.linalg.matmul(grid, matrix)), dtype='int32') % n, axis=2)
     result = tf.Variable(tf.zeros((n, n), dtype='float32'))
     return tf.tensor_scatter_nd_update(result, order, X_original)
+
+def apply_box_blur(tensor):
+    tensor = tf.cast(tensor, dtype=tf.float32)
+    tensor = tf.expand_dims(tf.expand_dims(tensor, axis=0), axis=-1)
+    kernel = tf.constant([[2, 2, 2], [2, 1, 2], [2, 2, 2]], dtype=tf.float32) / 9.0
+    kernel = tf.reshape(kernel, [3, 3, 1, 1])
+    padded_tensor = tf.pad(tensor, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='REFLECT')
+    result = tf.nn.conv2d(padded_tensor, kernel, strides=[1, 1, 1, 1], padding='VALID')
+    result = tf.squeeze(result, axis=[0, -1])
+    return result
+
+def save_grayscale_tensors_to_video(tensors, fps, output_path):
+    tensors = [np.uint8(tensor * 255) for tensor in tensors]
+    height, width = tensors[0].shape
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') 
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height), isColor=False)
+    for frame in tensors:
+        out.write(frame)
+    out.release()
+    print(f"Video saved to {output_path}")
 
 class AdamOptimizer:
     def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.98, epsilon=1e-8):
@@ -189,7 +210,7 @@ class FeedForwardLayer:
         self.Z1 = tf.linalg.matmul(X, self.W1) + self.b1
         self.B1 = self.batch_norm.forward(self.Z1, training=training)
         if output:
-            return tf.nn.tanh(self.B1)
+            return tf.nn.sigmoid(self.B1)
         elif middle:
             return tf.nn.sigmoid(self.B1)
         else:
@@ -201,14 +222,16 @@ class FeedForwardLayer:
         return tf.reduce_mean(loss)
 
     def compute_accuracy(self, Y_pred, Y_true):
-        return 1
+        y_pred_classes = tf.cast(tf.round(Y_pred), dtype='int32')
+        y_true_classes = tf.cast(tf.round(Y_true), dtype='int32')
+        return tf.reduce_mean(tf.cast(tf.equal(y_pred_classes, y_true_classes), dtype='float32'))
 
     def backward(self, X, A1, dA1, output=0, middle=0):
         if self.skipping:
             return dA1
         m = dA1.shape[1] 
         if output:
-            dZ1 = dA1 * (1 - tf.nn.tanh(A1) ** 2)
+            dZ1 = dA1 * tf.nn.sigmoid(A1) * (1 - tf.nn.sigmoid(A1))
         elif middle:
             dZ1 = dA1 * tf.nn.sigmoid(A1) * (1 - tf.nn.sigmoid(A1))
         else:
@@ -429,18 +452,25 @@ def train_model_mnist():
     learning_rate = 0.001
     hidden_size = 100
     batch_size = 300
-    n = 4
+    n = 5
     image_size = 28
     batches_selected = 10
+    transform_matrix = tf.convert_to_tensor([[10, 9], [1, 1]], dtype='float32')
+    transform_matrix = tf.linalg.matmul(transform_matrix, transform_matrix)
     batches_x = []
     batches_y = []
     batches_x = [X[i:i + batch_size] for i in range(0, len(X), batch_size)]
-    for i in range(len(batches_x)):
+    for i in range(batches_selected):
         batches_x[i] = tf.convert_to_tensor(batches_x[i], dtype='float32')
-    batches_y = [Y[i:i + batch_size] for i in range(0, len(X), batch_size)]
-    for i in range(len(batches_y)):
-        batches_y[i] = tf.convert_to_tensor(batches_y[i], dtype='float32')
-    filepath = './custom_models'
+        X = batches_x[i]
+        D = tf.reshape(X - tf.map_fn(lambda x: permute_torus(x, image_size, transform_matrix), X), (batch_size, -1,))
+        X = tf.reshape(X, (batch_size, -1,))
+        batches_x[i] = X
+        batches_y.append(D)
+    #batches_y = [Y[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    #for i in range(len(batches_y)):
+    #    batches_y[i] = tf.convert_to_tensor(batches_y[i], dtype='float32')
+    filepath = './custom_models/'
     mxlen = image_size * image_size
     layers = []
     layers.append(FeedForwardLayer(mxlen, hidden_size, 0, learning_rate=learning_rate))
@@ -455,16 +485,14 @@ def train_model_mnist():
     n = {n}
     training_samples = {batches_selected * batch_size}
     ''')
-    transform_matrix = tf.convert_to_tensor([[10, 9], [1, 1]], dtype='float32')
-    threshold_loss = 0.05
+    threshold_loss = 0.1
     def training_loop(epoch):
         start_time = time.time()
         loss = 0
         accuracy = 0
         for i in range(batches_selected):
             X = batches_x[i]
-            D = tf.reshape(X - tf.map_fn(lambda x: permute_torus(x, image_size, transform_matrix), X), (batch_size, -1,))
-            X = tf.reshape(X, (batch_size, -1,))
+            D = batches_y[i]
             Y_pred = [X]
             for j in range(n):
                 Y_pred.append(0)
@@ -484,15 +512,15 @@ def train_model_mnist():
         loss, accuracy, val_accuracy = training_loop(epoch)
         np.empty((0,))
         gc.collect()
-        if (loss < threshold_loss or accuracy > 0.999) and 0 or val_accuracy > 0.98:
+        if loss < threshold_loss:
             break
     
 def use_model_mnist():
     learning_rate = 0.001
     hidden_size = 100
-    n = 4
+    n = 5
     image_size = 28
-    filepath = './custom_models'
+    filepath = './custom_models/'
     mxlen = image_size * image_size
     layers = []
     layers.append(FeedForwardLayer(mxlen, hidden_size, 0, learning_rate=learning_rate))
@@ -502,25 +530,168 @@ def use_model_mnist():
     for i in range(n):
         layers[i].load_model(filepath)
     data = np.load('/home/user/Desktop/datasets/mnist_raw.npy', allow_pickle=True)
-    X = tf.convert_to_tensor(data['x_train'][1] / 256, dtype='float32')
-    transform_matrix = tf.linalg.inv(tf.convert_to_tensor([[10, 9], [1, 1]], dtype='float32'))
-    Y_pred = [tf.reshape(X, (1, mxlen))]
-    for i in range(n):
-        Y_pred.append(0)
-        Y_pred[-1] = layers[i].forward(Y_pred[-2], output=int(i == n - 1), training=0)
-    D = tf.reshape(Y_pred[-1], (image_size, image_size))
-    result = permute_torus(X - D, image_size, transform_matrix)
+    #X = tf.convert_to_tensor(data['x_train'][50000] / 256, dtype='float32')
+    test_image = plt.imread('./test.png')
+    X = tf.convert_to_tensor(test_image[:, :, 0], dtype='float32')
+    transform_matrix = tf.convert_to_tensor([[10, 9], [1, 1]], dtype='float32')
+    transform_matrix = tf.linalg.matmul(transform_matrix, transform_matrix)
+    transform_matrix = tf.linalg.inv(transform_matrix)
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     axes[0].imshow(X, cmap='gray', vmin=0, vmax=255 / 256)
     axes[0].set_title("Original")
     axes[0].axis('off')
-    axes[1].imshow(result, cmap='gray', vmin=0, vmax=255 / 256)
+    results = []
+    for k in range(60):
+        Y_pred = [tf.reshape(X, (1, mxlen))]
+        for i in range(n):
+            Y_pred.append(0)
+            Y_pred[-1] = layers[i].forward(Y_pred[-2], output=int(i == n - 1), training=0)
+        D = tf.reshape(Y_pred[-1], (image_size, image_size))
+        D += tf.random.normal((image_size, image_size), mean=0.0, stddev=0.1)
+        result = tf.cast(apply_box_blur(permute_torus(X - D, image_size, transform_matrix)) > 0.8, dtype='float32')
+        #result = X - D
+        X = result
+        results.append(result)
+    save_grayscale_tensors_to_video(results, 10, './test.mp4')
+    axes[1].imshow(results[0], cmap='gray', vmin=0, vmax=255 / 256)
     axes[1].set_title("New")
     axes[1].axis('off')
     plt.tight_layout()
-    plt.show()
+    #plt.show()
 
-if 1:
-    train_model_mnist()
+def train_model_mnist_permutation():
+    data = np.load('/home/user/Desktop/datasets/mnist_raw.npy', allow_pickle=True)
+    X = np.concatenate((data['x_train'], data['x_test'])) / 256
+    Y = np.concatenate((data['y_train'], data['y_test']))
+    print(Y[0])
+    def print_memory_usage():
+        process = psutil.Process()
+        print(f"Memory Usage: {process.memory_info().rss / (1024 * 1024):.2f} MB")
+    print_memory_usage()
+    learning_rate = 0.001
+    hidden_size = 100
+    batch_size = 300
+    n = 5
+    image_size = 28
+    batches_selected = 10
+    validation_size = 3
+    transform_matrix = tf.convert_to_tensor([[10, 9], [1, 1]], dtype='float32')
+    transform_matrix = tf.linalg.matmul(transform_matrix, transform_matrix)
+    batches_x = []
+    batches_y = []
+    batches_y = [X[i:i + batch_size] for i in range(0, len(X), batch_size)]
+    batches_x = [Y[i:i + batch_size] for i in range(0, len(Y), batch_size)]
+    for i in range(batches_selected + validation_size):
+        batches_y[i] = tf.reshape(tf.cast(tf.convert_to_tensor(batches_y[i], dtype='float32') > 0.7, dtype='float32'), (batch_size, -1))
+        batches_x[i] = tf.reshape(tf.convert_to_tensor([tf.reshape(tf.cast(batches_x[i], dtype='float32'), (batch_size,)), tf.random.uniform((batch_size,))], dtype='float32'),
+                                  (batch_size, 2))
+    validation_x = batches_x[batches_selected:batches_selected + validation_size]
+    validation_y = batches_y[batches_selected:batches_selected + validation_size]
+    filepath = './custom_models/'
+    mxlen = image_size * image_size
+    layers = []
+    layers.append(FeedForwardLayer(2, hidden_size, 0, learning_rate=learning_rate))
+    for i in range(n - 2):
+        layers.append(FeedForwardLayer(hidden_size, hidden_size, i + 1, learning_rate=learning_rate))
+    layers.append(FeedForwardLayer(hidden_size, mxlen, n, learning_rate=learning_rate))
+    print(len(batches_x))
+    print(f'''
+    learning_rate = {learning_rate}
+    hidden_size = {hidden_size}
+    batch_size = {batch_size}
+    n = {n}
+    training_samples = {batches_selected * batch_size}
+    validation_samples = {validation_size * batch_size}
+    ''')
+    threshold_loss = 0.1
+    def training_loop(epoch):
+        start_time = time.time()
+        loss = 0
+        accuracy = 0
+        for i in range(batches_selected):
+            X = batches_x[i]
+            Y = batches_y[i]
+            Y_pred = [X]
+            for j in range(n):
+                Y_pred.append(0)
+                Y_pred[-1] = layers[j].forward(Y_pred[-2], output=int(j == n - 1))
+            loss = (loss * i + layers[0].compute_loss(Y_pred[-1], Y)) / (i + 1)
+            accuracy = (accuracy * i + layers[0].compute_accuracy(Y_pred[-1], Y)) / (i + 1)
+            dA2 = Y_pred[-1] - Y
+            for j in range(n - 1, -1, -1):
+                dA2 = layers[j].backward(Y_pred[j], Y_pred[j + 1], dA2, output=int(j == n - 1))
+        if 1:
+            print(f'epoch: {epoch}, Loss: {loss}, Accuracy: {accuracy}, Time: {time.time() - start_time}')
+        val_loss = 0
+        val_accuracy = 0
+        for i in range(len(validation_x)):
+            X = validation_x[i]
+            Y = validation_y[i]
+            Y_pred = [X]
+            for j in range(n):
+                Y_pred.append(0)
+                Y_pred[-1] = layers[j].forward(Y_pred[-2], output=int(j == n - 1))
+            val_loss = (val_loss * i + layers[0].compute_loss(Y_pred[-1], Y)) / (i + 1)
+            val_accuracy = (val_accuracy * i + layers[0].compute_accuracy(Y_pred[-1], Y)) / (i + 1)
+        if 1:
+            print(f'    Validation loss: {val_loss}, Validation accuracy: {val_accuracy}')
+        for i in range(len(layers)):
+            layers[i].save_model(filepath)
+        return loss, accuracy, 0
+    for epoch in range(1,30001):
+        print_memory_usage()
+        loss, accuracy, val_accuracy = training_loop(epoch)
+        np.empty((0,))
+        gc.collect()
+        if loss < threshold_loss:
+            break
+
+def use_model_mnist_permutation():
+    data = np.load('/home/user/Desktop/datasets/mnist_raw.npy', allow_pickle=True)
+    X = np.concatenate((data['x_train'], data['x_test'])) / 256
+    Y = np.concatenate((data['y_train'], data['y_test']))
+    print(Y[0])
+    def print_memory_usage():
+        process = psutil.Process()
+        print(f"Memory Usage: {process.memory_info().rss / (1024 * 1024):.2f} MB")
+    print_memory_usage()
+    learning_rate = 0.001
+    hidden_size = 100
+    batch_size = 300
+    n = 5
+    image_size = 28
+    batches_selected = 10
+    validation_size = 3
+    filepath = './custom_models/'
+    mxlen = image_size * image_size
+    layers = []
+    layers.append(FeedForwardLayer(2, hidden_size, 0, learning_rate=learning_rate))
+    for i in range(n - 2):
+        layers.append(FeedForwardLayer(hidden_size, hidden_size, i + 1, learning_rate=learning_rate))
+    layers.append(FeedForwardLayer(hidden_size, mxlen, n, learning_rate=learning_rate))
+    for i in range(n):
+        layers[i].load_model(filepath)
+    print('ready')
+    while(True):
+        label = int(input())
+        if label == -1:
+            break
+        X = tf.reshape(tf.convert_to_tensor([tf.reshape(tf.cast(label, dtype='float32'), (1, 1)), tf.random.uniform((1,1))], dtype='float32'), (1, 2))
+        Y_pred = [X]
+        for j in range(n):
+            Y_pred.append(0)
+            Y_pred[-1] = layers[j].forward(Y_pred[-2], output=int(j == n - 1), training=0)
+        result = tf.reshape(Y_pred[-1], (image_size, image_size))
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        axes[0].imshow(result, cmap='gray', vmin=0, vmax=1)
+        axes[0].set_title("Original")
+        axes[0].axis('off')
+        plt.tight_layout()
+        plt.show()
+
+if 0:
+    #train_model_mnist()
+    train_model_mnist_permutation()
 elif 1:
-    use_model_mnist()
+    #use_model_mnist()
+    use_model_mnist_permutation()

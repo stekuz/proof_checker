@@ -415,7 +415,7 @@ for word in stop_words_full:
     for token in text:
         stop_words.append(token)
 
-stop_words = sorted(list(set(stop_words)))
+stop_words = sorted(list(set(stop_words)) + special_chars)
 
 with open('./stop_words_imdb.txt', 'w') as f:
     for token in stop_words:
@@ -433,6 +433,7 @@ def preprocess_mxlen_tokens():
                 data_raw.append(row)
             if i == 100000:
                 break
+    data_full = []
     for row in data_raw:
         tokenized_full = tokenize_text(row[0])
         tokenized = []
@@ -441,11 +442,38 @@ def preprocess_mxlen_tokens():
                 tokenized.append(token)
         if len(tokenized) >= 300:
             continue
+        data_full.append(tokenized)
         mxlen = max(mxlen, len(tokenized) + 10)
         for token in tokenized:
             all_tokens[token] = 1
+    
     with open('./all_tokens_imdb.txt', 'w') as f:
         for token in all_tokens:
+            f.write(token + '\n')
+    with open('./mxlen_imdb.txt', 'w') as f:
+        f.write(str(mxlen) + '\n')
+    all_tokens_list = open('./all_tokens_imdb.txt', 'r').readlines()
+    all_tokens_list = [token[:-1] for token in all_tokens_list]
+    all_tokens_list = sorted(all_tokens_list)
+    for i in range(len(all_tokens_list)):
+        all_tokens[all_tokens_list[i]] = 0
+    for x in data_full:
+        for token in x:
+            all_tokens[token] += 1
+    most_popular_tokens = []
+    for token in all_tokens:
+        if all_tokens[token] > 200:
+            most_popular_tokens.append(token)
+    mxlen = 0
+    for i in range(len(data_full)):
+        truncated = []
+        for token in data_full[i]:
+            if token in most_popular_tokens:
+                truncated.append(token)
+        data_full[i] = truncated
+        mxlen = max(mxlen, len(data_full[i]) + 10)
+    with open('./all_tokens_imdb.txt', 'w') as f:
+        for token in most_popular_tokens:
             f.write(token + '\n')
     with open('./mxlen_imdb.txt', 'w') as f:
         f.write(str(mxlen) + '\n')
@@ -493,7 +521,7 @@ def preprocess_data_imdb(index):
     np.save(f'/home/user/Desktop/datasets/imdb_50k_y_{index - int(index == 6)}.npy', Y)
     print(index)
 
-#preprocess_mxlen_tokens()
+preprocess_mxlen_tokens()
 #preprocess_data_imdb(1)
 #preprocess_data_imdb(2)
 #preprocess_data_imdb(3)
@@ -526,8 +554,8 @@ def preprocess_training_batches(index):
     for i in range(len(batches_y)):
         batches_y[i] = tf.convert_to_tensor(batches_y[i], dtype='float32')
     for i in range(len(batches_x)):
-        np.save(f'/home/user/Desktop/batches/training_batches_x_{68 + i}', batches_x[i])
-        np.save(f'/home/user/Desktop/batches/training_batches_y_{68 + i}', batches_y[i])
+        np.save(f'/home/user/Desktop/batches/training_batches_x_{128 + i}', batches_x[i])
+        np.save(f'/home/user/Desktop/batches/training_batches_y_{128 + i}', batches_y[i])
     return len(batches_x)
 
 #preprocess_training_batches(1)
@@ -535,3 +563,4 @@ def preprocess_training_batches(index):
 #preprocess_training_batches(3)
 #preprocess_training_batches(4)
 #preprocess_training_batches(5)
+
